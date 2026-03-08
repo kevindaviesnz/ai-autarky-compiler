@@ -27,6 +27,18 @@ impl Context {
 
     pub fn check(&mut self, term: &Term) -> Result<Type, String> {
         match term {
+            Term::IntVal(_) => Ok(Type::Int), // NEW
+            Term::Add(t1, t2) => {
+                // Algorithmic Threading naturally ensures resources are split between operands!
+                let type1 = self.check(t1)?;
+                let type2 = self.check(t2)?;
+                
+                if type1 == Type::Int && type2 == Type::Int {
+                    Ok(Type::Int)
+                } else {
+                    Err("Type Error: Both operands of addition must be Int".to_string())
+                }
+            }
             Term::Var(name) => {
                 let resource = self.resources.get(name).cloned();
                 match resource {
@@ -39,17 +51,14 @@ impl Context {
                 }
             }
             Term::Split(target, alias1, alias2, body) => {
-                // 1. Ensure the target exists and is strictly consumed
                 let resource = self.resources.remove(target)
                     .ok_or_else(|| format!("Linearity Violation: Cannot split unbound variable '{}'", target))?;
 
-                // 2. Ensure it has FULL permission before splitting
                 let inner_type = match resource {
                     Resource::Linear(Type::Linear(Permission::Full, t)) => t,
                     _ => return Err(format!("Type Error: Can only split a Linear resource with Full permission. '{}' does not qualify.", target)),
                 };
 
-                // 3. Create the two 1/2 read-only fractional aliases
                 let half_perm = Permission::Fraction(1, 2);
                 let alias_type = Type::Linear(half_perm.clone(), inner_type.clone());
 
@@ -59,13 +68,44 @@ impl Context {
 
                 let result_type = body_ctx.check(body)?;
 
-                // 4. Verify both fractions were safely consumed within the block
                 for (name, res) in body_ctx.resources {
                     if let Resource::Linear(_) = res {
                         return Err(format!("Linearity Violation: Fractional alias '{}' was never consumed inside the split body", name));
                     }
                 }
 
+                Ok(result_type)
+            }
+            Term::Merge(alias1, alias2, target, body) => {
+                let res1 = self.resources.remove(alias1)
+                    .ok_or_else(|| format!("Linearity Violation: '{}' not found", alias1))?;
+                let res2 = self.resources.remove(alias2)
+                    .ok_or_else(|| format!("Linearity Violation: '{}' not found", alias2))?;
+
+                let inner_type = match (res1, res2) {
+                    (Resource::Linear(Type::Linear(Permission::Fraction(n1, d1), t1)),
+                     Resource::Linear(Type::Linear(Permission::Fraction(n2, d2), t2))) => {
+                        if t1 != t2 { 
+                            return Err("Type Error: Cannot merge fractions of different types".to_string()); 
+                        }
+                        if (n1 * d2) + (n2 * d1) != (d1 * d2) {
+                            return Err("Type Error: Fractions do not sum to Full permission".to_string());
+                        }
+                        *t1 
+                    },
+                    _ => return Err("Type Error: Can only merge linear fractional permissions".to_string()),
+                };
+
+                let mut body_ctx = self.clone();
+                body_ctx.insert(target.clone(), Resource::Linear(Type::Linear(Permission::Full, Box::new(inner_type))));
+                
+                let result_type = body_ctx.check(body)?;
+                
+                for (name, res) in body_ctx.resources {
+                    if let Resource::Linear(_) = res {
+                        return Err(format!("Linearity Violation: Merged variable '{}' was never consumed", name));
+                    }
+                }
                 Ok(result_type)
             }
             Term::Abs(param_name, param_type, body) => {

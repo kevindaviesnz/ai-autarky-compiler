@@ -1,21 +1,17 @@
 use crate::codegen::Instruction;
 use std::collections::HashMap;
 
-/// The types of values that can exist in our VM's memory at runtime.
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub enum Value {
-    /// A closure containing its parameter name and executable body.
-    Closure(String, Vec<Instruction>),
-    /// A raw memory address (to simulate our linear pointer).
+    /// A closure now captures its defining lexical environment!
+    Closure(String, Vec<Instruction>, HashMap<String, Value>),
     MemoryAddress(usize),
+    Int(u32),
 }
 
 pub struct VM {
-    /// The execution stack
     stack: Vec<Value>,
-    /// The runtime environment (mapping variable names to memory values).
-    /// In a production VM, this would be a chain of call frames.
     env: HashMap<String, Value>,
 }
 
@@ -27,19 +23,30 @@ impl VM {
         }
     }
 
-    /// Seeds the VM environment with external/global variables
     pub fn insert_global(&mut self, name: String, val: Value) {
         self.env.insert(name, val);
     }
 
-    /// Executes a block of bytecode instructions
     pub fn execute(&mut self, instructions: &[Instruction]) -> Result<Option<Value>, String> {
-        let mut pc = 0; // Program Counter
+        let mut pc = 0; 
         
         while pc < instructions.len() {
             match &instructions[pc] {
+                Instruction::PushInt(n) => {
+                    self.stack.push(Value::Int(*n));
+                }
+                Instruction::Add => {
+                    let right = self.stack.pop().ok_or("Runtime Error: Stack underflow on Add (right)")?;
+                    let left = self.stack.pop().ok_or("Runtime Error: Stack underflow on Add (left)")?;
+                    
+                    match (left, right) {
+                        (Value::Int(l), Value::Int(r)) => {
+                            self.stack.push(Value::Int(l + r));
+                        }
+                        _ => return Err("Runtime Error: Attempted to add non-integers".to_string()),
+                    }
+                }
                 Instruction::PushVar(name) => {
-                    // Look up the variable in the environment and push it to the stack
                     if let Some(val) = self.env.get(name) {
                         self.stack.push(val.clone());
                     } else {
@@ -47,23 +54,23 @@ impl VM {
                     }
                 }
                 Instruction::MakeClosure(param, body) => {
-                    self.stack.push(Value::Closure(param.clone(), body.clone()));
+                    // CLOSURE CAPTURE: We clone the current environment and trap it inside the closure
+                    self.stack.push(Value::Closure(param.clone(), body.clone(), self.env.clone()));
                 }
                 Instruction::Call => {
-                    // Pop the function, then pop the argument off the stack
                     let func = self.stack.pop().ok_or("Runtime Error: Stack underflow (func)")?;
                     let arg = self.stack.pop().ok_or("Runtime Error: Stack underflow (arg)")?;
 
                     match func {
-                        Value::Closure(param, body) => {
-                            // Create a new VM scope for the function call
+                        Value::Closure(param, body, captured_env) => {
                             let mut call_frame = VM::new();
-                            call_frame.env = self.env.clone(); // Inherit globals
                             
-                            // Bind the argument to the parameter name in the new scope
+                            // Load the captured environment, NOT just the global environment
+                            call_frame.env = captured_env; 
+                            
+                            // Bind the new argument
                             call_frame.env.insert(param, arg);
                             
-                            // Execute the closure body
                             if let Some(ret_val) = call_frame.execute(&body)? {
                                 self.stack.push(ret_val);
                             }
@@ -72,14 +79,12 @@ impl VM {
                     }
                 }
                 Instruction::Return => {
-                    // Return the top value of the stack
                     return Ok(self.stack.pop());
                 }
             }
             pc += 1;
         }
         
-        // If the program ends without an explicit return, pop the final result
         Ok(self.stack.pop())
     }
 }

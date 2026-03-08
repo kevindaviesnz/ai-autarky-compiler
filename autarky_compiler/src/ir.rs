@@ -3,6 +3,8 @@ use crate::ast::Term;
 #[derive(Debug, Clone, PartialEq)]
 pub enum IRTerm {
     Var(String),
+    IntVal(u32), // NEW
+    Add(Box<IRTerm>, Box<IRTerm>), // NEW
     Abs(String, Box<IRTerm>),
     App(Box<IRTerm>, Box<IRTerm>),
     #[allow(dead_code)]
@@ -11,6 +13,8 @@ pub enum IRTerm {
 
 pub fn generate_ir(ast: &Term) -> IRTerm {
     match ast {
+        Term::IntVal(n) => IRTerm::IntVal(*n),
+        Term::Add(t1, t2) => IRTerm::Add(Box::new(generate_ir(t1)), Box::new(generate_ir(t2))),
         Term::Var(name) => IRTerm::Var(name.clone()),
         Term::Abs(param, _type_annotation, body) => {
             IRTerm::Abs(param.clone(), Box::new(generate_ir(body)))
@@ -19,8 +23,6 @@ pub fn generate_ir(ast: &Term) -> IRTerm {
             IRTerm::App(Box::new(generate_ir(t1)), Box::new(generate_ir(t2)))
         }
         Term::Split(target, alias1, alias2, body) => {
-            // ERASURE: A fractional split is erased into a double function application
-            // Equivalent to: (\alias1 . \alias2 . body) target target
             IRTerm::App(
                 Box::new(IRTerm::App(
                     Box::new(IRTerm::Abs(
@@ -30,6 +32,12 @@ pub fn generate_ir(ast: &Term) -> IRTerm {
                     Box::new(IRTerm::Var(target.clone()))
                 )),
                 Box::new(IRTerm::Var(target.clone()))
+            )
+        }
+        Term::Merge(alias1, _alias2, target, body) => {
+            IRTerm::App(
+                Box::new(IRTerm::Abs(target.clone(), Box::new(generate_ir(body)))),
+                Box::new(IRTerm::Var(alias1.clone()))
             )
         }
     }

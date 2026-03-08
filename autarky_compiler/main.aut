@@ -1,1 +1,1 @@
-( \x : Lin Type_1 . split x into ptr1, ptr2 in ptr1 memory_ptr )
+( ( ( \x : Int . \y : Int . (x + y) ) 10 ) 32 )

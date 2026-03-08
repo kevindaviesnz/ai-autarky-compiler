@@ -11,14 +11,18 @@ pub enum Token {
     Dot,      
     LParen,   
     RParen,   
-    Bang,     
+    Bang,
+    Plus,     
     Lin,      
     Pi,       
+    IntKw,    
     TypeUniv(u32), 
-    SplitKw,  // split
-    IntoKw,   // into
-    InKw,     // in
-    Comma,    // ,
+    SplitKw,
+    IntoKw,
+    InKw,
+    MergeKw,
+    AndKw,
+    Comma,
     Eof,
 }
 
@@ -52,6 +56,7 @@ impl<'a> Lexer<'a> {
             Some(')') => Token::RParen,
             Some('!') => Token::Bang,
             Some(',') => Token::Comma,
+            Some('+') => Token::Plus, 
             Some(c) if c.is_alphabetic() || c == '_' => {
                 let mut ident = String::from(c);
                 while let Some(&next_c) = self.chars.peek() {
@@ -64,9 +69,12 @@ impl<'a> Lexer<'a> {
                 match ident.as_str() {
                     "Lin" => Token::Lin,
                     "Pi" => Token::Pi,
+                    "Int" => Token::IntKw, 
                     "split" => Token::SplitKw,
                     "into" => Token::IntoKw,
                     "in" => Token::InKw,
+                    "merge" => Token::MergeKw,
+                    "and" => Token::AndKw,
                     s if s.starts_with("Type_") => {
                         let num_str = &s[5..];
                         if let Ok(n) = num_str.parse::<u32>() {
@@ -141,6 +149,10 @@ impl Parser {
                 self.advance();
                 Ok(Type::Universe(n))
             }
+            Token::IntKw => {
+                self.advance();
+                Ok(Type::Int)
+            }
             Token::Bang => {
                 self.advance();
                 let inner = self.parse_type()?;
@@ -149,7 +161,6 @@ impl Parser {
             Token::Lin => {
                 self.advance();
                 let inner = self.parse_type()?;
-                // Default syntax "Lin T" implies Full ownership
                 Ok(Type::Linear(Permission::Full, Box::new(inner)))
             }
             Token::Pi => {
@@ -170,12 +181,16 @@ impl Parser {
 
     pub fn parse_term(&mut self) -> Result<Term, String> {
         match self.peek().clone() {
+            Token::Number(n) => {
+                self.advance();
+                Ok(Term::IntVal(n))
+            }
             Token::Ident(name) => {
                 self.advance();
                 Ok(Term::Var(name))
             }
             Token::SplitKw => {
-                self.advance(); // consume 'split'
+                self.advance(); 
                 if let Token::Ident(target) = self.advance().clone() {
                     self.expect(Token::IntoKw)?;
                     if let Token::Ident(alias1) = self.advance().clone() {
@@ -187,6 +202,20 @@ impl Parser {
                         } else { Err("Expected second alias identifier".to_string()) }
                     } else { Err("Expected first alias identifier".to_string()) }
                 } else { Err("Expected target identifier to split".to_string()) }
+            }
+            Token::MergeKw => {
+                self.advance(); 
+                if let Token::Ident(alias1) = self.advance().clone() {
+                    self.expect(Token::AndKw)?;
+                    if let Token::Ident(alias2) = self.advance().clone() {
+                        self.expect(Token::IntoKw)?;
+                        if let Token::Ident(target) = self.advance().clone() {
+                            self.expect(Token::InKw)?;
+                            let body = self.parse_term()?;
+                            Ok(Term::Merge(alias1, alias2, target, Box::new(body)))
+                        } else { Err("Expected target identifier".to_string()) }
+                    } else { Err("Expected second alias".to_string()) }
+                } else { Err("Expected first alias".to_string()) }
             }
             Token::Lambda => {
                 self.advance(); 
@@ -203,9 +232,20 @@ impl Parser {
             Token::LParen => {
                 self.advance(); 
                 let t1 = self.parse_term()?;
-                let t2 = self.parse_term()?;
-                self.expect(Token::RParen)?;
-                Ok(Term::App(Box::new(t1), Box::new(t2)))
+                
+                if self.peek() == &Token::Plus {
+                    self.advance(); // consume '+'
+                    let t2 = self.parse_term()?;
+                    self.expect(Token::RParen)?;
+                    Ok(Term::Add(Box::new(t1), Box::new(t2)))
+                } else if self.peek() == &Token::RParen {
+                    self.advance(); // consume ')'
+                    Ok(t1)
+                } else {
+                    let t2 = self.parse_term()?;
+                    self.expect(Token::RParen)?;
+                    Ok(Term::App(Box::new(t1), Box::new(t2)))
+                }
             }
             _ => Err(format!("Unexpected token in term: {:?}", self.peek())),
         }

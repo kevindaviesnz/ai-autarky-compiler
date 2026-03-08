@@ -6,9 +6,9 @@ mod codegen;
 mod ir;
 mod parser;
 mod typecheck;
-mod vm; // <- New module added
+mod vm;
 
-use ast::{Resource, Type};
+use ast::{Permission, Resource, Type};
 use typecheck::Context;
 use vm::{Value, VM};
 
@@ -29,7 +29,7 @@ fn main() {
     let cli = Cli::parse();
 
     println!("========================================");
-    println!("🐍 Autarky Compiler Bootstrapper v0.6.0");
+    println!("🐍 Autarky Compiler Bootstrapper v0.7.0");
     println!("========================================");
 
     let source_code = match fs::read_to_string(&cli.file) {
@@ -50,9 +50,12 @@ fn main() {
     };
 
     let mut ctx = Context::new();
-    ctx.insert("memory_ptr".to_string(), Resource::Linear(Type::Universe(1)));
+    
+    ctx.insert(
+        "memory_ptr".to_string(), 
+        Resource::Linear(Type::Linear(Permission::Full, Box::new(Type::Universe(1))))
+    );
 
-    // 1. THEOREM PROVING PHASE
     if let Err(e) = ctx.check(&ast) {
         eprintln!("❌ Verification Failed!");
         eprintln!("{}", e);
@@ -60,20 +63,16 @@ fn main() {
     }
     println!("✅ Type Check Passed (Memory Safety Guaranteed)");
 
-    // 2. ERASURE & IR GENERATION PHASE
     let optimized_ir = ir::generate_ir(&ast);
     println!("✅ Proof Erasure Complete");
     
-    // 3. CODE GENERATION PHASE
     let bytecode = codegen::generate_bytecode(&optimized_ir);
     println!("✅ Bytecode Generated");
     
-    // 4. EXECUTION PHASE (The Virtual Machine)
     println!("----------------------------------------");
     println!("🚀 Executing inside Autarky VM...");
     
     let mut runtime = VM::new();
-    // Seed the runtime with our simulated memory pointer
     runtime.insert_global("memory_ptr".to_string(), Value::MemoryAddress(0xDEADBEEF));
 
     match runtime.execute(&bytecode) {
