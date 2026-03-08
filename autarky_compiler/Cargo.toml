@@ -1,0 +1,8 @@
+[package]
+name = "autarky"
+version = "0.1.0"
+edition = "2021"
+description = "Stage 0 Bootstrapper for the Autarky Compiler"
+
+[dependencies]
+clap = { version = "4.4", features = ["derive"] }
