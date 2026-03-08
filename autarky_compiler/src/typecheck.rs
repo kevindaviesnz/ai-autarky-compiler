@@ -27,9 +27,9 @@ impl Context {
 
     pub fn check(&mut self, term: &Term) -> Result<Type, String> {
         match term {
-            Term::IntVal(_) => Ok(Type::Int), // NEW
+            Term::IntVal(_) => Ok(Type::Int),
+            Term::UnitVal => Ok(Type::Unit), // NEW: Handled here
             Term::Add(t1, t2) => {
-                // Algorithmic Threading naturally ensures resources are split between operands!
                 let type1 = self.check(t1)?;
                 let type2 = self.check(t2)?;
                 
@@ -48,6 +48,20 @@ impl Context {
                         Ok(t)
                     }
                     None => Err(format!("Linearity Violation: Unbound or already consumed variable '{}'", name)),
+                }
+            }
+            Term::Free(target) => { // NEW: Handled here
+                let target_type = self.check(target)?;
+                match target_type {
+                    Type::Linear(Permission::Full, _) => {
+                        // The prover has consumed the full permission resource and verified it.
+                        // We safely return Unit.
+                        Ok(Type::Unit)
+                    }
+                    Type::Linear(Permission::Fraction(_, _), _) => {
+                        Err("Type Error: Cannot free a fractional permission. You must merge to Full first.".to_string())
+                    }
+                    _ => Err("Type Error: Can only free a Linear resource.".to_string()),
                 }
             }
             Term::Split(target, alias1, alias2, body) => {

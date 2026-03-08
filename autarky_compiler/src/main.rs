@@ -29,7 +29,7 @@ fn main() {
     let cli = Cli::parse();
 
     println!("========================================");
-    println!("🐍 Autarky Compiler Bootstrapper v0.7.0");
+    println!("🐍 Autarky Compiler Bootstrapper v0.8.0");
     println!("========================================");
 
     let source_code = match fs::read_to_string(&cli.file) {

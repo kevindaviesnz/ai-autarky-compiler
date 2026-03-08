@@ -1,13 +1,14 @@
 #[derive(Debug, Clone, PartialEq)]
 pub enum Permission {
     Full,
-    Fraction(u32, u32), // numerator, denominator
+    Fraction(u32, u32),
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Type {
     Universe(u32),
-    Int, // NEW: The primitive Integer type
+    Int,
+    Unit, // NEW: The void/empty return type
     Pi(String, Box<Type>, Box<Type>),
     Persistent(Box<Type>),
     Linear(Permission, Box<Type>),
@@ -16,19 +17,22 @@ pub enum Type {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Term {
     Var(String),
-    IntVal(u32), // NEW: Integer literal
-    Add(Box<Term>, Box<Term>), // NEW: Addition operation
+    IntVal(u32),
+    UnitVal, // NEW: The literal unit value
+    Add(Box<Term>, Box<Term>),
     Abs(String, Type, Box<Term>),
     App(Box<Term>, Box<Term>),
     Split(String, String, String, Box<Term>),
     Merge(String, String, String, Box<Term>),
+    Free(Box<Term>), // NEW: The deallocation operation
 }
 
 impl Type {
     pub fn substitute(&self, var_name: &str, term: &Term) -> Type {
         match self {
             Type::Universe(n) => Type::Universe(*n),
-            Type::Int => Type::Int, // Int has no dependencies
+            Type::Int => Type::Int,
+            Type::Unit => Type::Unit, // NEW
             Type::Pi(param, t1, t2) => {
                 let sub_t1 = t1.substitute(var_name, term);
                 if param == var_name {

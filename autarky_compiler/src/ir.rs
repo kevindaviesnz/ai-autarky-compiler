@@ -3,10 +3,12 @@ use crate::ast::Term;
 #[derive(Debug, Clone, PartialEq)]
 pub enum IRTerm {
     Var(String),
-    IntVal(u32), // NEW
-    Add(Box<IRTerm>, Box<IRTerm>), // NEW
+    IntVal(u32), 
+    UnitVal, // NEW
+    Add(Box<IRTerm>, Box<IRTerm>), 
     Abs(String, Box<IRTerm>),
     App(Box<IRTerm>, Box<IRTerm>),
+    Free(Box<IRTerm>), // NEW: We carry the free down to the VM to actually drop the memory
     #[allow(dead_code)]
     Erased,
 }
@@ -14,8 +16,10 @@ pub enum IRTerm {
 pub fn generate_ir(ast: &Term) -> IRTerm {
     match ast {
         Term::IntVal(n) => IRTerm::IntVal(*n),
+        Term::UnitVal => IRTerm::UnitVal, // NEW
         Term::Add(t1, t2) => IRTerm::Add(Box::new(generate_ir(t1)), Box::new(generate_ir(t2))),
         Term::Var(name) => IRTerm::Var(name.clone()),
+        Term::Free(target) => IRTerm::Free(Box::new(generate_ir(target))), // NEW
         Term::Abs(param, _type_annotation, body) => {
             IRTerm::Abs(param.clone(), Box::new(generate_ir(body)))
         }

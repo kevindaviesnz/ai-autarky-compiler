@@ -15,7 +15,10 @@ pub enum Token {
     Plus,     
     Lin,      
     Pi,       
-    IntKw,    
+    IntKw,
+    UnitKw,    // NEW: Unit type
+    UnitValKw, // NEW: unit value
+    FreeKw,    // NEW: free
     TypeUniv(u32), 
     SplitKw,
     IntoKw,
@@ -70,6 +73,9 @@ impl<'a> Lexer<'a> {
                     "Lin" => Token::Lin,
                     "Pi" => Token::Pi,
                     "Int" => Token::IntKw, 
+                    "Unit" => Token::UnitKw, // NEW
+                    "unit" => Token::UnitValKw, // NEW
+                    "free" => Token::FreeKw, // NEW
                     "split" => Token::SplitKw,
                     "into" => Token::IntoKw,
                     "in" => Token::InKw,
@@ -153,6 +159,10 @@ impl Parser {
                 self.advance();
                 Ok(Type::Int)
             }
+            Token::UnitKw => {
+                self.advance();
+                Ok(Type::Unit) // NEW
+            }
             Token::Bang => {
                 self.advance();
                 let inner = self.parse_type()?;
@@ -185,9 +195,18 @@ impl Parser {
                 self.advance();
                 Ok(Term::IntVal(n))
             }
+            Token::UnitValKw => {
+                self.advance();
+                Ok(Term::UnitVal) // NEW
+            }
             Token::Ident(name) => {
                 self.advance();
                 Ok(Term::Var(name))
+            }
+            Token::FreeKw => {
+                self.advance(); // consume 'free'
+                let target = self.parse_term()?;
+                Ok(Term::Free(Box::new(target))) // NEW
             }
             Token::SplitKw => {
                 self.advance(); 
@@ -234,12 +253,12 @@ impl Parser {
                 let t1 = self.parse_term()?;
                 
                 if self.peek() == &Token::Plus {
-                    self.advance(); // consume '+'
+                    self.advance(); 
                     let t2 = self.parse_term()?;
                     self.expect(Token::RParen)?;
                     Ok(Term::Add(Box::new(t1), Box::new(t2)))
                 } else if self.peek() == &Token::RParen {
-                    self.advance(); // consume ')'
+                    self.advance(); 
                     Ok(t1)
                 } else {
                     let t2 = self.parse_term()?;
