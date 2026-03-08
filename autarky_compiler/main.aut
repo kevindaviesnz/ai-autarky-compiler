@@ -1,8 +1,11 @@
-( 
-    ( \x : Lin Type_1 . 
-        if False then 
-            (free x) 
-        else 
-            (free x) 
-    ) 
-memory_ptr )
+(
+  (fix \rec : Pi p : Pair Int (Lin Type_1) . Unit .
+     \p : Pair Int (Lin Type_1) .
+       unpack p into n, ptr in
+         if (n == 0) then
+           (free ptr)
+         else
+           (rec (mkpair (n - 1) ptr))
+  )
+  (mkpair 5 memory_ptr)
+)

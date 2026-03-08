@@ -9,7 +9,8 @@ pub enum Type {
     Universe(u32),
     Int,
     Unit,
-    Bool, // NEW: Boolean primitive type
+    Bool,
+    Pair(Box<Type>, Box<Type>),
     Pi(String, Box<Type>, Box<Type>),
     Persistent(Box<Type>),
     Linear(Permission, Box<Type>),
@@ -20,9 +21,14 @@ pub enum Term {
     Var(String),
     IntVal(u32),
     UnitVal,
-    BoolVal(bool), // NEW: True or False
-    If(Box<Term>, Box<Term>, Box<Term>), // NEW: if condition then true_branch else false_branch
+    BoolVal(bool),
+    MkPair(Box<Term>, Box<Term>),
+    Unpack(Box<Term>, String, String, Box<Term>),
+    If(Box<Term>, Box<Term>, Box<Term>), 
     Add(Box<Term>, Box<Term>),
+    Sub(Box<Term>, Box<Term>), // NEW
+    Eq(Box<Term>, Box<Term>),  // NEW
+    Fix(Box<Term>),            // NEW: Fixed-point combinator
     Abs(String, Type, Box<Term>),
     App(Box<Term>, Box<Term>),
     Split(String, String, String, Box<Term>),
@@ -36,7 +42,11 @@ impl Type {
             Type::Universe(n) => Type::Universe(*n),
             Type::Int => Type::Int,
             Type::Unit => Type::Unit,
-            Type::Bool => Type::Bool, // NEW
+            Type::Bool => Type::Bool, 
+            Type::Pair(t1, t2) => Type::Pair(
+                Box::new(t1.substitute(var_name, term)), 
+                Box::new(t2.substitute(var_name, term))
+            ),
             Type::Pi(param, t1, t2) => {
                 let sub_t1 = t1.substitute(var_name, term);
                 if param == var_name {

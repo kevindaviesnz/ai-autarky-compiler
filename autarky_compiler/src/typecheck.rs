@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use crate::ast::{Permission, Resource, Term, Type};
 
-#[derive(Debug, Clone, PartialEq)] // Added PartialEq to compare contexts
+#[derive(Debug, Clone, PartialEq)] 
 pub struct Context {
     resources: HashMap<String, Resource>,
 }
@@ -29,14 +29,69 @@ impl Context {
         match term {
             Term::IntVal(_) => Ok(Type::Int),
             Term::UnitVal => Ok(Type::Unit),
-            Term::BoolVal(_) => Ok(Type::Bool), // NEW
-            Term::If(cond, t_branch, f_branch) => { // NEW: The Linear Branching Paradox Solved
+            Term::BoolVal(_) => Ok(Type::Bool), 
+            Term::MkPair(t1, t2) => {
+                let type1 = self.check(t1)?;
+                let type2 = self.check(t2)?;
+                Ok(Type::Pair(Box::new(type1), Box::new(type2)))
+            }
+            Term::Unpack(target, alias1, alias2, body) => {
+                let target_type = self.check(target)?;
+                
+                let (t_x, t_y) = match target_type {
+                    Type::Pair(t1, t2) => (*t1, *t2),
+                    Type::Linear(Permission::Full, inner) => match *inner {
+                        Type::Pair(t1, t2) => (
+                            Type::Linear(Permission::Full, t1),
+                            Type::Linear(Permission::Full, t2)
+                        ),
+                        _ => return Err("Type Error: Cannot unpack a non-pair linear resource".to_string())
+                    },
+                    Type::Linear(Permission::Fraction(n, d), inner) => match *inner {
+                        Type::Pair(t1, t2) => (
+                            Type::Linear(Permission::Fraction(n, d), t1),
+                            Type::Linear(Permission::Fraction(n, d), t2)
+                        ),
+                        _ => return Err("Type Error: Cannot unpack a non-pair fractional resource".to_string())
+                    },
+                    _ => return Err("Type Error: Can only unpack a Pair".to_string()),
+                };
+
+                let mut body_ctx = self.clone();
+                let res_x = match &t_x {
+                    Type::Linear(_, _) => Resource::Linear(t_x.clone()),
+                    _ => Resource::Persistent(t_x.clone()),
+                };
+                let res_y = match &t_y {
+                    Type::Linear(_, _) => Resource::Linear(t_y.clone()),
+                    _ => Resource::Persistent(t_y.clone()),
+                };
+
+                body_ctx.insert(alias1.clone(), res_x);
+                body_ctx.insert(alias2.clone(), res_y);
+
+                let result_type = body_ctx.check(body)?;
+
+                for (name, res) in body_ctx.resources.iter() {
+                    if let Resource::Linear(_) = res {
+                        if name == alias1 || name == alias2 {
+                            return Err(format!("Linearity Violation: Unpacked variable '{}' was never consumed", name));
+                        }
+                    }
+                }
+
+                body_ctx.resources.remove(alias1);
+                body_ctx.resources.remove(alias2);
+                self.resources = body_ctx.resources;
+
+                Ok(result_type)
+            }
+            Term::If(cond, t_branch, f_branch) => { 
                 let cond_type = self.check(cond)?;
                 if cond_type != Type::Bool {
                     return Err("Type Error: Condition of 'if' must be a Bool".to_string());
                 }
 
-                // Fork the context to simulate both possible futures
                 let mut ctx_true = self.clone();
                 let mut ctx_false = self.clone();
 
@@ -47,26 +102,37 @@ impl Context {
                     return Err(format!("Type Error: Branches of 'if' return different types ({:?} vs {:?})", t_type, f_type));
                 }
 
-                // STRICT LINEARITY ENFORCEMENT:
-                // Both branches MUST consume the exact same linear resources.
-                // If they don't match perfectly, we risk a memory leak or double-free!
                 if ctx_true.resources != ctx_false.resources {
                     return Err("Linearity Violation: Both branches of an 'if' must consume the exact same linear resources!".to_string());
                 }
 
-                // The timelines converge. We adopt the resulting state.
                 self.resources = ctx_true.resources;
-
                 Ok(t_type)
             }
             Term::Add(t1, t2) => {
                 let type1 = self.check(t1)?;
                 let type2 = self.check(t2)?;
-                
-                if type1 == Type::Int && type2 == Type::Int {
-                    Ok(Type::Int)
-                } else {
-                    Err("Type Error: Both operands of addition must be Int".to_string())
+                if type1 == Type::Int && type2 == Type::Int { Ok(Type::Int) } 
+                else { Err("Type Error: Operands of addition must be Int".to_string()) }
+            }
+            Term::Sub(t1, t2) => { // NEW
+                let type1 = self.check(t1)?;
+                let type2 = self.check(t2)?;
+                if type1 == Type::Int && type2 == Type::Int { Ok(Type::Int) } 
+                else { Err("Type Error: Operands of subtraction must be Int".to_string()) }
+            }
+            Term::Eq(t1, t2) => { // NEW
+                let type1 = self.check(t1)?;
+                let type2 = self.check(t2)?;
+                if type1 == Type::Int && type2 == Type::Int { Ok(Type::Bool) } 
+                else { Err("Type Error: Operands of == must be Int".to_string()) }
+            }
+            Term::Fix(inner) => { // NEW
+                let inner_type = self.check(inner)?;
+                match inner_type {
+                    // Verifies it is exactly A -> A
+                    Type::Pi(_, t1, t2) if t1 == t2 => Ok(*t1),
+                    _ => Err("Type Error: 'fix' must be applied to a function of type A -> A".to_string()),
                 }
             }
             Term::Var(name) => {

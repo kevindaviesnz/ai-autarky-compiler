@@ -13,17 +13,23 @@ pub enum Token {
     RParen,   
     Bang,
     Plus,     
+    Minus,     // NEW
+    EqEq,      // NEW
     Lin,      
     Pi,       
     IntKw,
     UnitKw,    
     UnitValKw, 
-    BoolKw,    // NEW
-    TrueKw,    // NEW
-    FalseKw,   // NEW
-    IfKw,      // NEW
-    ThenKw,    // NEW
-    ElseKw,    // NEW
+    BoolKw,    
+    TrueKw,    
+    FalseKw,   
+    PairKw,    
+    MkPairKw,  
+    UnpackKw,  
+    IfKw,      
+    ThenKw,    
+    ElseKw,    
+    FixKw,     // NEW
     FreeKw,    
     TypeUniv(u32), 
     SplitKw,
@@ -66,6 +72,15 @@ impl<'a> Lexer<'a> {
             Some('!') => Token::Bang,
             Some(',') => Token::Comma,
             Some('+') => Token::Plus, 
+            Some('-') => Token::Minus, // NEW
+            Some('=') => { // NEW
+                if let Some(&'=') = self.chars.peek() {
+                    self.chars.next();
+                    Token::EqEq
+                } else {
+                    panic!("Lexer Error: Expected ==");
+                }
+            }
             Some(c) if c.is_alphabetic() || c == '_' => {
                 let mut ident = String::from(c);
                 while let Some(&next_c) = self.chars.peek() {
@@ -81,12 +96,16 @@ impl<'a> Lexer<'a> {
                     "Int" => Token::IntKw, 
                     "Unit" => Token::UnitKw, 
                     "unit" => Token::UnitValKw, 
-                    "Bool" => Token::BoolKw,     // NEW
-                    "True" => Token::TrueKw,     // NEW
-                    "False" => Token::FalseKw,   // NEW
-                    "if" => Token::IfKw,         // NEW
-                    "then" => Token::ThenKw,     // NEW
-                    "else" => Token::ElseKw,     // NEW
+                    "Bool" => Token::BoolKw,     
+                    "True" => Token::TrueKw,     
+                    "False" => Token::FalseKw,
+                    "Pair" => Token::PairKw,     
+                    "mkpair" => Token::MkPairKw, 
+                    "unpack" => Token::UnpackKw, 
+                    "if" => Token::IfKw,         
+                    "then" => Token::ThenKw,     
+                    "else" => Token::ElseKw,     
+                    "fix" => Token::FixKw,       // NEW
                     "free" => Token::FreeKw, 
                     "split" => Token::SplitKw,
                     "into" => Token::IntoKw,
@@ -163,6 +182,12 @@ impl Parser {
 
     pub fn parse_type(&mut self) -> Result<Type, String> {
         match self.peek().clone() {
+            Token::LParen => {
+                self.advance();
+                let inner = self.parse_type()?;
+                self.expect(Token::RParen)?;
+                Ok(inner)
+            }
             Token::TypeUniv(n) => {
                 self.advance();
                 Ok(Type::Universe(n))
@@ -177,7 +202,13 @@ impl Parser {
             }
             Token::BoolKw => {
                 self.advance();
-                Ok(Type::Bool) // NEW
+                Ok(Type::Bool) 
+            }
+            Token::PairKw => { 
+                self.advance();
+                let t1 = self.parse_type()?;
+                let t2 = self.parse_type()?;
+                Ok(Type::Pair(Box::new(t1), Box::new(t2)))
             }
             Token::Bang => {
                 self.advance();
@@ -217,24 +248,48 @@ impl Parser {
             }
             Token::TrueKw => {
                 self.advance();
-                Ok(Term::BoolVal(true)) // NEW
+                Ok(Term::BoolVal(true)) 
             }
             Token::FalseKw => {
                 self.advance();
-                Ok(Term::BoolVal(false)) // NEW
+                Ok(Term::BoolVal(false)) 
             }
             Token::Ident(name) => {
                 self.advance();
                 Ok(Term::Var(name))
             }
-            Token::IfKw => { // NEW: Parse if condition then true_branch else false_branch
-                self.advance(); // consume 'if'
+            Token::MkPairKw => { 
+                self.advance();
+                let t1 = self.parse_term()?;
+                let t2 = self.parse_term()?;
+                Ok(Term::MkPair(Box::new(t1), Box::new(t2)))
+            }
+            Token::UnpackKw => { 
+                self.advance(); 
+                let target = self.parse_term()?;
+                self.expect(Token::IntoKw)?;
+                if let Token::Ident(alias1) = self.advance().clone() {
+                    self.expect(Token::Comma)?;
+                    if let Token::Ident(alias2) = self.advance().clone() {
+                        self.expect(Token::InKw)?;
+                        let body = self.parse_term()?;
+                        Ok(Term::Unpack(Box::new(target), alias1, alias2, Box::new(body)))
+                    } else { Err("Expected second alias identifier".to_string()) }
+                } else { Err("Expected first alias identifier".to_string()) }
+            }
+            Token::IfKw => { 
+                self.advance(); 
                 let condition = self.parse_term()?;
                 self.expect(Token::ThenKw)?;
                 let true_branch = self.parse_term()?;
                 self.expect(Token::ElseKw)?;
                 let false_branch = self.parse_term()?;
                 Ok(Term::If(Box::new(condition), Box::new(true_branch), Box::new(false_branch)))
+            }
+            Token::FixKw => { // NEW
+                self.advance();
+                let inner = self.parse_term()?;
+                Ok(Term::Fix(Box::new(inner)))
             }
             Token::FreeKw => {
                 self.advance(); 
@@ -290,6 +345,16 @@ impl Parser {
                     let t2 = self.parse_term()?;
                     self.expect(Token::RParen)?;
                     Ok(Term::Add(Box::new(t1), Box::new(t2)))
+                } else if self.peek() == &Token::Minus { // NEW
+                    self.advance(); 
+                    let t2 = self.parse_term()?;
+                    self.expect(Token::RParen)?;
+                    Ok(Term::Sub(Box::new(t1), Box::new(t2)))
+                } else if self.peek() == &Token::EqEq { // NEW
+                    self.advance(); 
+                    let t2 = self.parse_term()?;
+                    self.expect(Token::RParen)?;
+                    Ok(Term::Eq(Box::new(t1), Box::new(t2)))
                 } else if self.peek() == &Token::RParen {
                     self.advance(); 
                     Ok(t1)
