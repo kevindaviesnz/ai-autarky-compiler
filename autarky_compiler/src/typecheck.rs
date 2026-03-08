@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use crate::ast::{Permission, Resource, Term, Type};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)] // Added PartialEq to compare contexts
 pub struct Context {
     resources: HashMap<String, Resource>,
 }
@@ -28,7 +28,37 @@ impl Context {
     pub fn check(&mut self, term: &Term) -> Result<Type, String> {
         match term {
             Term::IntVal(_) => Ok(Type::Int),
-            Term::UnitVal => Ok(Type::Unit), // NEW: Handled here
+            Term::UnitVal => Ok(Type::Unit),
+            Term::BoolVal(_) => Ok(Type::Bool), // NEW
+            Term::If(cond, t_branch, f_branch) => { // NEW: The Linear Branching Paradox Solved
+                let cond_type = self.check(cond)?;
+                if cond_type != Type::Bool {
+                    return Err("Type Error: Condition of 'if' must be a Bool".to_string());
+                }
+
+                // Fork the context to simulate both possible futures
+                let mut ctx_true = self.clone();
+                let mut ctx_false = self.clone();
+
+                let t_type = ctx_true.check(t_branch)?;
+                let f_type = ctx_false.check(f_branch)?;
+
+                if t_type != f_type {
+                    return Err(format!("Type Error: Branches of 'if' return different types ({:?} vs {:?})", t_type, f_type));
+                }
+
+                // STRICT LINEARITY ENFORCEMENT:
+                // Both branches MUST consume the exact same linear resources.
+                // If they don't match perfectly, we risk a memory leak or double-free!
+                if ctx_true.resources != ctx_false.resources {
+                    return Err("Linearity Violation: Both branches of an 'if' must consume the exact same linear resources!".to_string());
+                }
+
+                // The timelines converge. We adopt the resulting state.
+                self.resources = ctx_true.resources;
+
+                Ok(t_type)
+            }
             Term::Add(t1, t2) => {
                 let type1 = self.check(t1)?;
                 let type2 = self.check(t2)?;
@@ -50,12 +80,10 @@ impl Context {
                     None => Err(format!("Linearity Violation: Unbound or already consumed variable '{}'", name)),
                 }
             }
-            Term::Free(target) => { // NEW: Handled here
+            Term::Free(target) => {
                 let target_type = self.check(target)?;
                 match target_type {
                     Type::Linear(Permission::Full, _) => {
-                        // The prover has consumed the full permission resource and verified it.
-                        // We safely return Unit.
                         Ok(Type::Unit)
                     }
                     Type::Linear(Permission::Fraction(_, _), _) => {

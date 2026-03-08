@@ -8,7 +8,8 @@ pub enum Permission {
 pub enum Type {
     Universe(u32),
     Int,
-    Unit, // NEW: The void/empty return type
+    Unit,
+    Bool, // NEW: Boolean primitive type
     Pi(String, Box<Type>, Box<Type>),
     Persistent(Box<Type>),
     Linear(Permission, Box<Type>),
@@ -18,13 +19,15 @@ pub enum Type {
 pub enum Term {
     Var(String),
     IntVal(u32),
-    UnitVal, // NEW: The literal unit value
+    UnitVal,
+    BoolVal(bool), // NEW: True or False
+    If(Box<Term>, Box<Term>, Box<Term>), // NEW: if condition then true_branch else false_branch
     Add(Box<Term>, Box<Term>),
     Abs(String, Type, Box<Term>),
     App(Box<Term>, Box<Term>),
     Split(String, String, String, Box<Term>),
     Merge(String, String, String, Box<Term>),
-    Free(Box<Term>), // NEW: The deallocation operation
+    Free(Box<Term>),
 }
 
 impl Type {
@@ -32,7 +35,8 @@ impl Type {
         match self {
             Type::Universe(n) => Type::Universe(*n),
             Type::Int => Type::Int,
-            Type::Unit => Type::Unit, // NEW
+            Type::Unit => Type::Unit,
+            Type::Bool => Type::Bool, // NEW
             Type::Pi(param, t1, t2) => {
                 let sub_t1 = t1.substitute(var_name, term);
                 if param == var_name {

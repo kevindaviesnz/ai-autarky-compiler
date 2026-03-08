@@ -7,7 +7,8 @@ pub enum Value {
     Closure(String, Vec<Instruction>, HashMap<String, Value>),
     MemoryAddress(usize),
     Int(u32),
-    Unit, // NEW
+    Unit,
+    Bool(bool), // NEW
 }
 
 pub struct VM {
@@ -32,12 +33,27 @@ impl VM {
         
         while pc < instructions.len() {
             match &instructions[pc] {
-                Instruction::PushInt(n) => {
-                    self.stack.push(Value::Int(*n));
+                Instruction::PushInt(n) => self.stack.push(Value::Int(*n)),
+                Instruction::PushUnit => self.stack.push(Value::Unit),
+                Instruction::PushBool(b) => self.stack.push(Value::Bool(*b)), // NEW
+                
+                Instruction::JumpIfFalse(offset) => { // NEW
+                    let condition = self.stack.pop().ok_or("Runtime Error: Stack underflow on JumpIfFalse")?;
+                    match condition {
+                        Value::Bool(b) => {
+                            if !b {
+                                pc += offset;
+                                continue; // Skip the standard pc += 1 at the end of the loop
+                            }
+                        }
+                        _ => return Err("Runtime Error: Expected Bool for conditional branch".to_string()),
+                    }
                 }
-                Instruction::PushUnit => {
-                    self.stack.push(Value::Unit);
+                Instruction::Jump(offset) => { // NEW
+                    pc += offset;
+                    continue; 
                 }
+
                 Instruction::Add => {
                     let right = self.stack.pop().ok_or("Runtime Error: Stack underflow on Add (right)")?;
                     let left = self.stack.pop().ok_or("Runtime Error: Stack underflow on Add (left)")?;
@@ -76,13 +92,12 @@ impl VM {
                         _ => return Err("Runtime Error: Attempted to call a non-closure".to_string()),
                     }
                 }
-                Instruction::Free => { // NEW: The native VM destruction call
+                Instruction::Free => { 
                     let val = self.stack.pop().ok_or("Runtime Error: Stack underflow on Free")?;
                     match val {
                         Value::MemoryAddress(addr) => {
-                            // In a real system, this is where we call drop() or free() on the heap allocator
                             println!("💀 [VM] Safely deallocating memory at address: {:#X}", addr);
-                            self.stack.push(Value::Unit); // Replaces the pointer with void
+                            self.stack.push(Value::Unit); 
                         }
                         _ => return Err("Runtime Error: Attempted to free a non-memory resource".to_string()),
                     }

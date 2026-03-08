@@ -4,11 +4,13 @@ use crate::ast::Term;
 pub enum IRTerm {
     Var(String),
     IntVal(u32), 
-    UnitVal, // NEW
+    UnitVal, 
+    BoolVal(bool), // NEW
+    If(Box<IRTerm>, Box<IRTerm>, Box<IRTerm>), // NEW
     Add(Box<IRTerm>, Box<IRTerm>), 
     Abs(String, Box<IRTerm>),
     App(Box<IRTerm>, Box<IRTerm>),
-    Free(Box<IRTerm>), // NEW: We carry the free down to the VM to actually drop the memory
+    Free(Box<IRTerm>), 
     #[allow(dead_code)]
     Erased,
 }
@@ -16,10 +18,12 @@ pub enum IRTerm {
 pub fn generate_ir(ast: &Term) -> IRTerm {
     match ast {
         Term::IntVal(n) => IRTerm::IntVal(*n),
-        Term::UnitVal => IRTerm::UnitVal, // NEW
+        Term::UnitVal => IRTerm::UnitVal, 
+        Term::BoolVal(b) => IRTerm::BoolVal(*b), // NEW
+        Term::If(c, t, f) => IRTerm::If(Box::new(generate_ir(c)), Box::new(generate_ir(t)), Box::new(generate_ir(f))), // NEW
         Term::Add(t1, t2) => IRTerm::Add(Box::new(generate_ir(t1)), Box::new(generate_ir(t2))),
         Term::Var(name) => IRTerm::Var(name.clone()),
-        Term::Free(target) => IRTerm::Free(Box::new(generate_ir(target))), // NEW
+        Term::Free(target) => IRTerm::Free(Box::new(generate_ir(target))), 
         Term::Abs(param, _type_annotation, body) => {
             IRTerm::Abs(param.clone(), Box::new(generate_ir(body)))
         }

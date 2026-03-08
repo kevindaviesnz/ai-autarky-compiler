@@ -16,9 +16,15 @@ pub enum Token {
     Lin,      
     Pi,       
     IntKw,
-    UnitKw,    // NEW: Unit type
-    UnitValKw, // NEW: unit value
-    FreeKw,    // NEW: free
+    UnitKw,    
+    UnitValKw, 
+    BoolKw,    // NEW
+    TrueKw,    // NEW
+    FalseKw,   // NEW
+    IfKw,      // NEW
+    ThenKw,    // NEW
+    ElseKw,    // NEW
+    FreeKw,    
     TypeUniv(u32), 
     SplitKw,
     IntoKw,
@@ -73,9 +79,15 @@ impl<'a> Lexer<'a> {
                     "Lin" => Token::Lin,
                     "Pi" => Token::Pi,
                     "Int" => Token::IntKw, 
-                    "Unit" => Token::UnitKw, // NEW
-                    "unit" => Token::UnitValKw, // NEW
-                    "free" => Token::FreeKw, // NEW
+                    "Unit" => Token::UnitKw, 
+                    "unit" => Token::UnitValKw, 
+                    "Bool" => Token::BoolKw,     // NEW
+                    "True" => Token::TrueKw,     // NEW
+                    "False" => Token::FalseKw,   // NEW
+                    "if" => Token::IfKw,         // NEW
+                    "then" => Token::ThenKw,     // NEW
+                    "else" => Token::ElseKw,     // NEW
+                    "free" => Token::FreeKw, 
                     "split" => Token::SplitKw,
                     "into" => Token::IntoKw,
                     "in" => Token::InKw,
@@ -161,7 +173,11 @@ impl Parser {
             }
             Token::UnitKw => {
                 self.advance();
-                Ok(Type::Unit) // NEW
+                Ok(Type::Unit) 
+            }
+            Token::BoolKw => {
+                self.advance();
+                Ok(Type::Bool) // NEW
             }
             Token::Bang => {
                 self.advance();
@@ -197,16 +213,33 @@ impl Parser {
             }
             Token::UnitValKw => {
                 self.advance();
-                Ok(Term::UnitVal) // NEW
+                Ok(Term::UnitVal) 
+            }
+            Token::TrueKw => {
+                self.advance();
+                Ok(Term::BoolVal(true)) // NEW
+            }
+            Token::FalseKw => {
+                self.advance();
+                Ok(Term::BoolVal(false)) // NEW
             }
             Token::Ident(name) => {
                 self.advance();
                 Ok(Term::Var(name))
             }
+            Token::IfKw => { // NEW: Parse if condition then true_branch else false_branch
+                self.advance(); // consume 'if'
+                let condition = self.parse_term()?;
+                self.expect(Token::ThenKw)?;
+                let true_branch = self.parse_term()?;
+                self.expect(Token::ElseKw)?;
+                let false_branch = self.parse_term()?;
+                Ok(Term::If(Box::new(condition), Box::new(true_branch), Box::new(false_branch)))
+            }
             Token::FreeKw => {
-                self.advance(); // consume 'free'
+                self.advance(); 
                 let target = self.parse_term()?;
-                Ok(Term::Free(Box::new(target))) // NEW
+                Ok(Term::Free(Box::new(target))) 
             }
             Token::SplitKw => {
                 self.advance(); 

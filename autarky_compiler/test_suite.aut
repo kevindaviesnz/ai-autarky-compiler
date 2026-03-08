@@ -1,0 +1,17 @@
+( 
+  ( \target_ptr : Lin Type_1 . 
+      split target_ptr into read_alias_1, read_alias_2 in 
+        merge read_alias_1 and read_alias_2 into exclusive_ptr in 
+          if True then 
+            ( 
+              ( 
+                ( \captured_val : Int . \ptr : Lin Type_1 . (free ptr) ) 
+                ( ( ( \x : Int . \y : Int . (x + y) ) 10 ) 32 ) 
+              )
+              exclusive_ptr
+            )
+          else 
+            (free exclusive_ptr) 
+  ) 
+  memory_ptr 
+)
