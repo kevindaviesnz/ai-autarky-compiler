@@ -1,11 +1,6 @@
 (
-  (fix \rec : Pi p : Pair Int (Lin Type_1) . Unit .
-     \p : Pair Int (Lin Type_1) .
-       unpack p into n, ptr in
-         if (n == 0) then
-           (free ptr)
-         else
-           (rec (mkpair (n - 1) ptr))
+  ( \source_code_array : Lin (Array Int) .
+      (free source_code_array)
   )
-  (mkpair 5 memory_ptr)
+  (read_file "main.aut")
 )

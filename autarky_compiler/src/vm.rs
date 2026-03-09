@@ -5,181 +5,105 @@ use std::collections::HashMap;
 #[derive(Debug, Clone)]
 pub enum Value {
     Closure(String, Vec<Instruction>, HashMap<String, Value>),
-    RecursiveClosure(String, Vec<Instruction>, HashMap<String, Value>), // NEW: The lazy unrolling fixed-point
-    MemoryAddress(usize),
-    Int(u32),
-    Unit,
-    Bool(bool),
-    Pair(Box<Value>, Box<Value>), 
+    RecursiveClosure(String, Vec<Instruction>, HashMap<String, Value>),
+    MemoryAddress(usize), ArrayAddress(usize),
+    Int(u32), Unit, Bool(bool), String(String), // NEW
+    Pair(Box<Value>, Box<Value>), Left(Box<Value>), Right(Box<Value>),
 }
 
-pub struct VM {
-    stack: Vec<Value>,
-    env: HashMap<String, Value>,
-}
+pub struct VM { stack: Vec<Value>, env: HashMap<String, Value>, heap: HashMap<usize, Vec<Value>>, next_alloc_ptr: usize }
 
 impl VM {
-    pub fn new() -> Self {
-        Self {
-            stack: Vec::new(),
-            env: HashMap::new(),
-        }
-    }
-
-    pub fn insert_global(&mut self, name: String, val: Value) {
-        self.env.insert(name, val);
-    }
-
+    pub fn new() -> Self { Self { stack: Vec::new(), env: HashMap::new(), heap: HashMap::new(), next_alloc_ptr: 0x1000 } }
+    pub fn insert_global(&mut self, name: String, val: Value) { self.env.insert(name, val); }
     pub fn execute(&mut self, instructions: &[Instruction]) -> Result<Option<Value>, String> {
-        let mut pc = 0; 
-        
+        let mut pc = 0;
         while pc < instructions.len() {
             match &instructions[pc] {
-                Instruction::PushInt(n) => self.stack.push(Value::Int(*n)),
-                Instruction::PushUnit => self.stack.push(Value::Unit),
-                Instruction::PushBool(b) => self.stack.push(Value::Bool(*b)), 
-                
-                Instruction::MakePair => { 
-                    let right = self.stack.pop().ok_or("Runtime Error: Stack underflow on MakePair (right)")?;
-                    let left = self.stack.pop().ok_or("Runtime Error: Stack underflow on MakePair (left)")?;
-                    self.stack.push(Value::Pair(Box::new(left), Box::new(right)));
-                }
-                Instruction::UnpackAndBind(alias1, alias2) => { 
-                    let target = self.stack.pop().ok_or("Runtime Error: Stack underflow on Unpack")?;
-                    match target {
-                        Value::Pair(left, right) => {
-                            self.env.insert(alias1.clone(), *left);
-                            self.env.insert(alias2.clone(), *right);
-                        }
-                        _ => return Err("Runtime Error: Attempted to unpack a non-pair value".to_string()),
+                Instruction::PushInt(n) => self.stack.push(Value::Int(*n)), Instruction::PushUnit => self.stack.push(Value::Unit),
+                Instruction::PushBool(b) => self.stack.push(Value::Bool(*b)), Instruction::PushString(s) => self.stack.push(Value::String(s.clone())),
+                Instruction::AllocArray => {
+                    let init = self.stack.pop().unwrap(); let size = self.stack.pop().unwrap();
+                    if let Value::Int(s) = size {
+                        let id = self.next_alloc_ptr; self.next_alloc_ptr += 0x10;
+                        self.heap.insert(id, vec![init; s as usize]);
+                        self.stack.push(Value::ArrayAddress(id));
                     }
                 }
-                Instruction::JumpIfFalse(offset) => { 
-                    let condition = self.stack.pop().ok_or("Runtime Error: Stack underflow on JumpIfFalse")?;
-                    match condition {
-                        Value::Bool(b) => {
-                            if !b {
-                                pc += offset;
-                                continue; 
-                            }
-                        }
-                        _ => return Err("Runtime Error: Expected Bool for conditional branch".to_string()),
+                Instruction::ReadFileOS => { // NEW: Interacting with the real host system
+                    if let Value::String(path) = self.stack.pop().unwrap() {
+                        let bytes = std::fs::read(&path).map_err(|e| format!("IO Error: {}", e))?;
+                        let id = self.next_alloc_ptr; self.next_alloc_ptr += 0x10;
+                        let mut arr = Vec::new();
+                        for b in bytes { arr.push(Value::Int(b as u32)); }
+                        self.heap.insert(id, arr.clone());
+                        println!("💾 [VM] File System Read: Loaded '{}' ({} bytes) directly into linear heap address: {:#X}", path, arr.len(), id);
+                        self.stack.push(Value::ArrayAddress(id));
+                    } else { return Err("ReadFileOS requires String".to_string()); }
+                }
+                Instruction::ReadArray => {
+                    let idx = self.stack.pop().unwrap(); let arr = self.stack.pop().unwrap();
+                    if let (Value::ArrayAddress(id), Value::Int(i)) = (arr, idx) {
+                        let vec = self.heap.get(&id).unwrap();
+                        let val = vec[i as usize].clone();
+                        self.stack.push(Value::Pair(Box::new(val), Box::new(Value::ArrayAddress(id))));
                     }
                 }
-                Instruction::Jump(offset) => { 
-                    pc += offset;
-                    continue; 
-                }
-
-                Instruction::Add => {
-                    let right = self.stack.pop().ok_or("Runtime Error: Stack underflow on Add (right)")?;
-                    let left = self.stack.pop().ok_or("Runtime Error: Stack underflow on Add (left)")?;
-                    match (left, right) {
-                        (Value::Int(l), Value::Int(r)) => self.stack.push(Value::Int(l + r)),
-                        _ => return Err("Runtime Error: Attempted to add non-integers".to_string()),
+                Instruction::WriteArray => {
+                    let val = self.stack.pop().unwrap(); let idx = self.stack.pop().unwrap(); let arr = self.stack.pop().unwrap();
+                    if let (Value::ArrayAddress(id), Value::Int(i)) = (arr, idx) {
+                        let vec = self.heap.get_mut(&id).unwrap(); vec[i as usize] = val;
+                        self.stack.push(Value::ArrayAddress(id));
                     }
                 }
-                Instruction::Sub => { // NEW
-                    let right = self.stack.pop().ok_or("Runtime Error: Stack underflow on Sub (right)")?;
-                    let left = self.stack.pop().ok_or("Runtime Error: Stack underflow on Sub (left)")?;
-                    match (left, right) {
-                        (Value::Int(l), Value::Int(r)) => {
-                            let result = if r > l { 0 } else { l - r }; // Prevent underflow crash for simple demo
-                            self.stack.push(Value::Int(result));
-                        }
-                        _ => return Err("Runtime Error: Attempted to subtract non-integers".to_string()),
+                Instruction::MakeLeft => { let val = self.stack.pop().unwrap(); self.stack.push(Value::Left(Box::new(val))); }
+                Instruction::MakeRight => { let val = self.stack.pop().unwrap(); self.stack.push(Value::Right(Box::new(val))); }
+                Instruction::BranchMatch(offset) => {
+                    match self.stack.pop().unwrap() { Value::Left(val) => self.stack.push(*val), Value::Right(val) => { self.stack.push(*val); pc += offset; continue; }, _ => return Err("Err".to_string()) }
+                }
+                Instruction::Bind(name) => { let val = self.stack.pop().unwrap(); self.env.insert(name.clone(), val); }
+                Instruction::MakePair => { let right = self.stack.pop().unwrap(); let left = self.stack.pop().unwrap(); self.stack.push(Value::Pair(Box::new(left), Box::new(right))); }
+                Instruction::UnpackAndBind(a1, a2) => { if let Value::Pair(l, r) = self.stack.pop().unwrap() { self.env.insert(a1.clone(), *l); self.env.insert(a2.clone(), *r); } }
+                Instruction::JumpIfFalse(offset) => { if let Value::Bool(b) = self.stack.pop().unwrap() { if !b { pc += offset; continue; } } }
+                Instruction::Jump(offset) => { pc += offset; continue; }
+                Instruction::Add => { let r = self.stack.pop().unwrap(); let l = self.stack.pop().unwrap(); if let (Value::Int(l), Value::Int(r)) = (l, r) { self.stack.push(Value::Int(l + r)); } }
+                Instruction::Sub => { let r = self.stack.pop().unwrap(); let l = self.stack.pop().unwrap(); if let (Value::Int(l), Value::Int(r)) = (l, r) { self.stack.push(Value::Int(if r > l { 0 } else { l - r })); } }
+                Instruction::Eq => { let r = self.stack.pop().unwrap(); let l = self.stack.pop().unwrap(); if let (Value::Int(l), Value::Int(r)) = (l, r) { self.stack.push(Value::Bool(l == r)); } }
+                Instruction::Fix => {
+                    if let Value::Closure(param, body, env) = self.stack.pop().unwrap() {
+                        let rec_ref = Value::RecursiveClosure(param.clone(), body.clone(), env.clone());
+                        let old_env = std::mem::replace(&mut self.env, env); self.env.insert(param, rec_ref);
+                        if let Some(ret_val) = self.execute(&body)? { self.stack.push(ret_val); } self.env = old_env;
                     }
                 }
-                Instruction::Eq => { // NEW
-                    let right = self.stack.pop().ok_or("Runtime Error: Stack underflow on Eq (right)")?;
-                    let left = self.stack.pop().ok_or("Runtime Error: Stack underflow on Eq (left)")?;
-                    match (left, right) {
-                        (Value::Int(l), Value::Int(r)) => self.stack.push(Value::Bool(l == r)),
-                        _ => return Err("Runtime Error: Attempted to equate non-integers".to_string()),
-                    }
-                }
-                Instruction::Fix => { // NEW: Convert standard closure into RecursiveClosure
-                    let func = self.stack.pop().ok_or("Runtime Error: Stack underflow on Fix")?;
-                    match func {
-                        Value::Closure(param, body, env) => {
-                            let rec_ref = Value::RecursiveClosure(param.clone(), body.clone(), env.clone());
-                            
-                            let mut call_frame = VM::new();
-                            call_frame.env = env;
-                            call_frame.env.insert(param, rec_ref);
-                            
-                            if let Some(ret_val) = call_frame.execute(&body)? {
-                                self.stack.push(ret_val);
-                            }
-                        }
-                        _ => return Err("Runtime Error: 'fix' must be applied to a closure".to_string()),
-                    }
-                }
-                Instruction::PushVar(name) => {
-                    if let Some(val) = self.env.get(name) {
-                        self.stack.push(val.clone());
-                    } else {
-                        return Err(format!("Runtime Error: Unbound variable '{}'", name));
-                    }
-                }
-                Instruction::MakeClosure(param, body) => {
-                    self.stack.push(Value::Closure(param.clone(), body.clone(), self.env.clone()));
-                }
+                Instruction::PushVar(name) => { if let Some(val) = self.env.get(name) { self.stack.push(val.clone()); } else { return Err("Err".to_string()); } }
+                Instruction::MakeClosure(param, body) => { self.stack.push(Value::Closure(param.clone(), body.clone(), self.env.clone())); }
                 Instruction::Call => {
-                    let func = self.stack.pop().ok_or("Runtime Error: Stack underflow (func)")?;
-                    let arg = self.stack.pop().ok_or("Runtime Error: Stack underflow (arg)")?;
-
+                    let func = self.stack.pop().unwrap(); let arg = self.stack.pop().unwrap();
                     match func {
                         Value::Closure(param, body, captured_env) => {
-                            let mut call_frame = VM::new();
-                            call_frame.env = captured_env; 
-                            call_frame.env.insert(param, arg);
-                            
-                            if let Some(ret_val) = call_frame.execute(&body)? {
-                                self.stack.push(ret_val);
-                            }
+                            let old_env = std::mem::replace(&mut self.env, captured_env); self.env.insert(param, arg);
+                            if let Some(ret_val) = self.execute(&body)? { self.stack.push(ret_val); } self.env = old_env;
                         }
-                        Value::RecursiveClosure(param, body, captured_env) => { // NEW: Safely unroll and call
-                            let rec_ref = Value::RecursiveClosure(param.clone(), body.clone(), captured_env.clone());
-                            
-                            let mut unroll_frame = VM::new();
-                            unroll_frame.env = captured_env;
-                            unroll_frame.env.insert(param, rec_ref);
-                            
-                            let unrolled_func = unroll_frame.execute(&body)?.ok_or("Runtime Error: Fix unroll failed")?;
-                            
-                            match unrolled_func {
-                                Value::Closure(u_param, u_body, u_env) => {
-                                    let mut call_frame = VM::new();
-                                    call_frame.env = u_env;
-                                    call_frame.env.insert(u_param, arg);
-                                    if let Some(ret_val) = call_frame.execute(&u_body)? {
-                                        self.stack.push(ret_val);
-                                    }
-                                }
-                                _ => return Err("Runtime Error: Recursive unroll did not yield a closure".to_string()),
-                            }
+                        Value::RecursiveClosure(param, body, captured_env) => {
+                            let old_env = std::mem::replace(&mut self.env, captured_env); let rec_ref = Value::RecursiveClosure(param.clone(), body.clone(), self.env.clone()); self.env.insert(param.clone(), rec_ref);
+                            let unrolled_func = self.execute(&body)?.unwrap(); self.env = old_env;
+                            if let Value::Closure(u_param, u_body, u_env) = unrolled_func { let old_env2 = std::mem::replace(&mut self.env, u_env); self.env.insert(u_param, arg); if let Some(ret_val) = self.execute(&u_body)? { self.stack.push(ret_val); } self.env = old_env2; }
                         }
-                        _ => return Err("Runtime Error: Attempted to call a non-closure".to_string()),
+                        _ => return Err("Err".to_string()),
                     }
                 }
-                Instruction::Free => { 
-                    let val = self.stack.pop().ok_or("Runtime Error: Stack underflow on Free")?;
-                    match val {
-                        Value::MemoryAddress(addr) => {
-                            println!("💀 [VM] Safely deallocating memory at address: {:#X}", addr);
-                            self.stack.push(Value::Unit); 
-                        }
-                        _ => return Err("Runtime Error: Attempted to free a non-memory resource".to_string()),
+                Instruction::Free => {
+                    match self.stack.pop().unwrap() {
+                        Value::MemoryAddress(_) => { self.stack.push(Value::Unit); }
+                        Value::ArrayAddress(addr) => { if self.heap.remove(&addr).is_some() { self.stack.push(Value::Unit); } }
+                        _ => return Err("Err".to_string()),
                     }
                 }
-                Instruction::Return => {
-                    return Ok(self.stack.pop());
-                }
+                Instruction::Return => { return Ok(self.stack.pop()); }
             }
             pc += 1;
         }
-        
         Ok(self.stack.pop())
     }
 }
