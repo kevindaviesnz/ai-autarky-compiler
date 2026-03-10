@@ -1,136 +1,203 @@
 (
-  ( \codegen : Pi expr : (Rec E . Either Int (Either (Pair E E) (Pair Int (Pair (Rec W . Either Int (Pair W W)) E)))) . (Rec L . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec L . Either Unit (Pair I L))) (Either Unit (Either Unit Unit)))) L)) .
+  ( \compile : Pi ctx : (Rec L . Either Unit (Pair (Pair Int (Rec W . Either Int (Pair W W))) L)) . Pi expr : (Rec E . Either Int (Either (Pair E E) (Pair Int (Pair (Rec W . Either Int (Pair W W)) E)))) . Pair (Pair (Either Unit (Rec W . Either Int (Pair W W))) (Rec L . Either Unit (Pair (Pair Int (Rec W . Either Int (Pair W W))) L))) (Rec IL . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) IL)) .
     (
-      ( \mock_expr : (Rec E . Either Int (Either (Pair E E) (Pair Int (Pair (Rec W . Either Int (Pair W W)) E)))) .
-        (codegen mock_expr)
-      )
-      (fold [(Rec E . Either Int (Either (Pair E E) (Pair Int (Pair (Rec W . Either Int (Pair W W)) E))))]
-        (Right Int
-          (Right (Pair (Rec E . Either Int (Either (Pair E E) (Pair Int (Pair (Rec W . Either Int (Pair W W)) E)))) (Rec E . Either Int (Either (Pair E E) (Pair Int (Pair (Rec W . Either Int (Pair W W)) E)))))
-            (mkpair 120
-              (mkpair
-                (fold [(Rec W . Either Int (Pair W W))] (Left 1 (Pair (Rec W . Either Int (Pair W W)) (Rec W . Either Int (Pair W W)))))
-                (fold [(Rec E . Either Int (Either (Pair E E) (Pair Int (Pair (Rec W . Either Int (Pair W W)) E))))] (Left 120 (Either (Pair (Rec E . Either Int (Either (Pair E E) (Pair Int (Pair (Rec W . Either Int (Pair W W)) E)))) (Rec E . Either Int (Either (Pair E E) (Pair Int (Pair (Rec W . Either Int (Pair W W)) E))))) (Pair Int (Pair (Rec W . Either Int (Pair W W)) (Rec E . Either Int (Either (Pair E E) (Pair Int (Pair (Rec W . Either Int (Pair W W)) E)))))))))
+      ( \mock_ctx : (Rec L . Either Unit (Pair (Pair Int (Rec W . Either Int (Pair W W))) L)) .
+        (
+          ( \mock_expr : (Rec E . Either Int (Either (Pair E E) (Pair Int (Pair (Rec W . Either Int (Pair W W)) E)))) .
+            ((compile mock_ctx) mock_expr)
+          )
+          (fold [(Rec E . Either Int (Either (Pair E E) (Pair Int (Pair (Rec W . Either Int (Pair W W)) E))))]
+            (Right Int
+              (Right (Pair (Rec E . Either Int (Either (Pair E E) (Pair Int (Pair (Rec W . Either Int (Pair W W)) E)))) (Rec E . Either Int (Either (Pair E E) (Pair Int (Pair (Rec W . Either Int (Pair W W)) E)))))
+                (mkpair 120
+                  (mkpair
+                    (fold [(Rec W . Either Int (Pair W W))] (Left 1 (Pair (Rec W . Either Int (Pair W W)) (Rec W . Either Int (Pair W W)))))
+                    (fold [(Rec E . Either Int (Either (Pair E E) (Pair Int (Pair (Rec W . Either Int (Pair W W)) E))))] (Left 120 (Either (Pair (Rec E . Either Int (Either (Pair E E) (Pair Int (Pair (Rec W . Either Int (Pair W W)) E)))) (Rec E . Either Int (Either (Pair E E) (Pair Int (Pair (Rec W . Either Int (Pair W W)) E))))) (Pair Int (Pair (Rec W . Either Int (Pair W W)) (Rec E . Either Int (Either (Pair E E) (Pair Int (Pair (Rec W . Either Int (Pair W W)) E)))))))))
+                  )
+                )
               )
             )
           )
         )
       )
+      (fold [(Rec L . Either Unit (Pair (Pair Int (Rec W . Either Int (Pair W W))) L))] (Left unit (Pair (Pair Int (Rec W . Either Int (Pair W W))) (Rec L . Either Unit (Pair (Pair Int (Rec W . Either Int (Pair W W))) L)))))
     )
   )
   ( fix
-    ( \cg : Pi expr : (Rec E . Either Int (Either (Pair E E) (Pair Int (Pair (Rec W . Either Int (Pair W W)) E)))) . (Rec L . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec L . Either Unit (Pair I L))) (Either Unit (Either Unit Unit)))) L)) .
-      \expr : (Rec E . Either Int (Either (Pair E E) (Pair Int (Pair (Rec W . Either Int (Pair W W)) E)))) .
+    ( \comp : Pi ctx : (Rec L . Either Unit (Pair (Pair Int (Rec W . Either Int (Pair W W))) L)) . Pi expr : (Rec E . Either Int (Either (Pair E E) (Pair Int (Pair (Rec W . Either Int (Pair W W)) E)))) . Pair (Pair (Either Unit (Rec W . Either Int (Pair W W))) (Rec L . Either Unit (Pair (Pair Int (Rec W . Either Int (Pair W W))) L))) (Rec IL . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) IL)) .
+      \ctx : (Rec L . Either Unit (Pair (Pair Int (Rec W . Either Int (Pair W W))) L)) . \expr : (Rec E . Either Int (Either (Pair E E) (Pair Int (Pair (Rec W . Either Int (Pair W W)) E)))) .
         match (unfold expr) with
           Left var_id =>
-            (fold [(Rec L . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec L . Either Unit (Pair I L))) (Either Unit (Either Unit Unit)))) L))]
-              (Right Unit
-                (mkpair
-                  (fold [(Rec I . Either Int (Either (Pair Int (Rec L . Either Unit (Pair I L))) (Either Unit (Either Unit Unit))))]
-                    (Left var_id (Either (Pair Int (Rec L . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec L . Either Unit (Pair I L))) (Either Unit (Either Unit Unit)))) L))) (Either Unit (Either Unit Unit))))
+            mkpair
+              ( ( ( fix
+                  ( \lkp : Pi c : (Rec L . Either Unit (Pair (Pair Int (Rec W . Either Int (Pair W W))) L)) . Pi t : Int . Pair (Either Unit (Rec W . Either Int (Pair W W))) (Rec L . Either Unit (Pair (Pair Int (Rec W . Either Int (Pair W W))) L)) .
+                    \c : (Rec L . Either Unit (Pair (Pair Int (Rec W . Either Int (Pair W W))) L)) .
+                    \t : Int .
+                      match (unfold c) with
+                        Left empty => mkpair (Left unit (Rec W . Either Int (Pair W W))) (fold [(Rec L . Either Unit (Pair (Pair Int (Rec W . Either Int (Pair W W))) L))] (Left unit (Pair (Pair Int (Rec W . Either Int (Pair W W))) (Rec L . Either Unit (Pair (Pair Int (Rec W . Either Int (Pair W W))) L)))))
+                      | Right node =>
+                          unpack node into binding, rest in
+                            unpack binding into name, type_val in
+                              if (name == t) then
+                                mkpair (Right Unit type_val) rest
+                              else
+                                unpack ((lkp rest) t) into result_type, next_ctx in
+                                  mkpair result_type (fold [(Rec L . Either Unit (Pair (Pair Int (Rec W . Either Int (Pair W W))) L))] (Right Unit (mkpair (mkpair name type_val) next_ctx)))
                   )
-                  (fold [(Rec L . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec L . Either Unit (Pair I L))) (Either Unit (Either Unit Unit)))) L))] (Left unit (Pair (Rec I . Either Int (Either (Pair Int (Rec L . Either Unit (Pair I L))) (Either Unit (Either Unit Unit)))) (Rec L . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec L . Either Unit (Pair I L))) (Either Unit (Either Unit Unit)))) L)))))
+                ) ctx ) var_id )
+              (fold [(Rec IL . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) IL))]
+                (Right Unit
+                  (mkpair
+                    (fold [(Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit))))]
+                      (Left var_id (Either (Pair Int (Rec IL . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) IL))) (Either Unit (Either Unit Unit))))
+                    )
+                    (fold [(Rec IL . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) IL))] (Left unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) (Rec IL . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) IL)))))
+                  )
                 )
               )
-            )
         | Right node1 =>
             match node1 with
               Left app_node =>
                 unpack app_node into f_expr, x_expr in
-                  ( ( ( fix
-                        ( \concat : Pi l1 : (Rec L . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec L . Either Unit (Pair I L))) (Either Unit (Either Unit Unit)))) L)) . Pi l2 : (Rec L . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec L . Either Unit (Pair I L))) (Either Unit (Either Unit Unit)))) L)) . (Rec L . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec L . Either Unit (Pair I L))) (Either Unit (Either Unit Unit)))) L)) .
-                          \l1 : (Rec L . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec L . Either Unit (Pair I L))) (Either Unit (Either Unit Unit)))) L)) . \l2 : (Rec L . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec L . Either Unit (Pair I L))) (Either Unit (Either Unit Unit)))) L)) .
-                            match (unfold l1) with
-                              Left empty => l2
-                            | Right cnode =>
-                                unpack cnode into head, tail in
-                                  (fold [(Rec L . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec L . Either Unit (Pair I L))) (Either Unit (Either Unit Unit)))) L))]
-                                    (Right Unit
-                                      (mkpair head ( ( (concat tail) l2 ) ))
-                                    )
-                                  )
-                        )
-                      ) ((cg x_expr)) )
-                    ( ( ( fix
-                          ( \concat : Pi l1 : (Rec L . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec L . Either Unit (Pair I L))) (Either Unit (Either Unit Unit)))) L)) . Pi l2 : (Rec L . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec L . Either Unit (Pair I L))) (Either Unit (Either Unit Unit)))) L)) . (Rec L . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec L . Either Unit (Pair I L))) (Either Unit (Either Unit Unit)))) L)) .
-                            \l1 : (Rec L . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec L . Either Unit (Pair I L))) (Either Unit (Either Unit Unit)))) L)) . \l2 : (Rec L . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec L . Either Unit (Pair I L))) (Either Unit (Either Unit Unit)))) L)) .
-                              match (unfold l1) with
-                                Left empty => l2
-                              | Right cnode =>
-                                  unpack cnode into head, tail in
-                                    (fold [(Rec L . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec L . Either Unit (Pair I L))) (Either Unit (Either Unit Unit)))) L))]
-                                      (Right Unit
-                                        (mkpair head ( ( (concat tail) l2 ) ))
-                                      )
-                                    )
-                          )
-                        ) ((cg f_expr)) )
-                      (fold [(Rec L . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec L . Either Unit (Pair I L))) (Either Unit (Either Unit Unit)))) L))]
-                        (Right Unit
-                          (mkpair
-                            (fold [(Rec I . Either Int (Either (Pair Int (Rec L . Either Unit (Pair I L))) (Either Unit (Either Unit Unit))))]
-                              (Right Int
-                                (Right (Pair Int (Rec L . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec L . Either Unit (Pair I L))) (Either Unit (Either Unit Unit)))) L)))
-                                  (Left unit (Either Unit Unit))
-                                )
-                              )
-                            )
-                            (fold [(Rec L . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec L . Either Unit (Pair I L))) (Either Unit (Either Unit Unit)))) L))] (Left unit (Pair (Rec I . Either Int (Either (Pair Int (Rec L . Either Unit (Pair I L))) (Either Unit (Either Unit Unit)))) (Rec L . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec L . Either Unit (Pair I L))) (Either Unit (Either Unit Unit)))) L)))))
-                          )
-                        )
-                      )
-                    )
-                  )
-              | Right abs_node =>
-                  unpack abs_node into param_id, rest_abs in
-                    unpack rest_abs into param_type, body_expr in
-                      (fold [(Rec L . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec L . Either Unit (Pair I L))) (Either Unit (Either Unit Unit)))) L))]
-                        (Right Unit
-                          (mkpair
-                            (fold [(Rec I . Either Int (Either (Pair Int (Rec L . Either Unit (Pair I L))) (Either Unit (Either Unit Unit))))]
-                              (Right Int
-                                (Left
-                                  (mkpair param_id
-                                    ( ( ( fix
-                                          ( \concat : Pi l1 : (Rec L . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec L . Either Unit (Pair I L))) (Either Unit (Either Unit Unit)))) L)) . Pi l2 : (Rec L . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec L . Either Unit (Pair I L))) (Either Unit (Either Unit Unit)))) L)) . (Rec L . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec L . Either Unit (Pair I L))) (Either Unit (Either Unit Unit)))) L)) .
-                                            \l1 : (Rec L . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec L . Either Unit (Pair I L))) (Either Unit (Either Unit Unit)))) L)) . \l2 : (Rec L . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec L . Either Unit (Pair I L))) (Either Unit (Either Unit Unit)))) L)) .
-                                              match (unfold l1) with
-                                                Left empty => l2
-                                              | Right cnode =>
-                                                  unpack cnode into head, tail in
-                                                    (fold [(Rec L . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec L . Either Unit (Pair I L))) (Either Unit (Either Unit Unit)))) L))]
-                                                      (Right Unit
-                                                        (mkpair head ( ( (concat tail) l2 ) ))
-                                                      )
+                  unpack ((comp ctx) f_expr) into f_tc_res, f_code in
+                    unpack f_tc_res into f_res, ctx_after_f in
+                      match f_res with
+                        Left err => mkpair (mkpair (Left unit (Rec W . Either Int (Pair W W))) ctx_after_f) (fold [(Rec IL . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) IL))] (Left unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) (Rec IL . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) IL)))))
+                      | Right f_type =>
+                          match (unfold f_type) with
+                            Left base_t => mkpair (mkpair (Left unit (Rec W . Either Int (Pair W W))) ctx_after_f) (fold [(Rec IL . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) IL))] (Left unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) (Rec IL . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) IL)))))
+                          | Right pi_type =>
+                              unpack pi_type into exp_arg_t, ret_t in
+                                unpack ((comp ctx_after_f) x_expr) into x_tc_res, x_code in
+                                  unpack x_tc_res into x_res, ctx_after_x in
+                                    match x_res with
+                                      Left err => mkpair (mkpair (Left unit (Rec W . Either Int (Pair W W))) ctx_after_x) (fold [(Rec IL . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) IL))] (Left unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) (Rec IL . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) IL)))))
+                                    | Right act_arg_t =>
+                                        if ( ( ( fix
+                                                ( \teq : Pi t1 : (Rec W . Either Int (Pair W W)) . Pi t2 : (Rec W . Either Int (Pair W W)) . Bool .
+                                                  \t1 : (Rec W . Either Int (Pair W W)) . \t2 : (Rec W . Either Int (Pair W W)) .
+                                                    match (unfold t1) with
+                                                      Left val1 =>
+                                                        match (unfold t2) with
+                                                          Left val2 => (val1 == val2)
+                                                        | Right p2 => unpack p2 into a2, b2 in False
+                                                    | Right p1 =>
+                                                        unpack p1 into a1, b1 in
+                                                          match (unfold t2) with
+                                                            Left val2 => False
+                                                          | Right p2 =>
+                                                              unpack p2 into a2, b2 in
+                                                                if ( (teq a1) a2 ) then
+                                                                  ( (teq b1) b2 )
+                                                                else
+                                                                  False
+                                                )
+                                              ) exp_arg_t ) act_arg_t ) then
+                                          mkpair
+                                            (mkpair (Right Unit ret_t) ctx_after_x)
+                                            ( ( ( fix
+                                                  ( \concat : Pi l1 : (Rec IL . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) IL)) . Pi l2 : (Rec IL . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) IL)) . (Rec IL . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) IL)) .
+                                                    \l1 : (Rec IL . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) IL)) . \l2 : (Rec IL . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) IL)) .
+                                                      match (unfold l1) with
+                                                        Left empty => l2
+                                                      | Right cnode =>
+                                                          unpack cnode into head, tail in
+                                                            (fold [(Rec IL . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) IL))]
+                                                              (Right Unit
+                                                                (mkpair head ( ( (concat tail) l2 ) ))
+                                                              )
+                                                            )
+                                                  )
+                                                ) x_code )
+                                              ( ( ( fix
+                                                    ( \concat : Pi l1 : (Rec IL . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) IL)) . Pi l2 : (Rec IL . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) IL)) . (Rec IL . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) IL)) .
+                                                      \l1 : (Rec IL . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) IL)) . \l2 : (Rec IL . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) IL)) .
+                                                        match (unfold l1) with
+                                                          Left empty => l2
+                                                        | Right cnode =>
+                                                            unpack cnode into head, tail in
+                                                              (fold [(Rec IL . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) IL))]
+                                                                (Right Unit
+                                                                  (mkpair head ( ( (concat tail) l2 ) ))
+                                                                )
+                                                              )
                                                     )
-                                          )
-                                        ) ((cg body_expr)) )
-                                      (fold [(Rec L . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec L . Either Unit (Pair I L))) (Either Unit (Either Unit Unit)))) L))]
-                                        (Right Unit
-                                          (mkpair
-                                            (fold [(Rec I . Either Int (Either (Pair Int (Rec L . Either Unit (Pair I L))) (Either Unit (Either Unit Unit))))]
-                                              (Right Int
-                                                (Right (Pair Int (Rec L . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec L . Either Unit (Pair I L))) (Either Unit (Either Unit Unit)))) L)))
+                                                  ) f_code )
+                                                (fold [(Rec IL . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) IL))]
                                                   (Right Unit
-                                                    (Right Unit unit)
+                                                    (mkpair
+                                                      (fold [(Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit))))]
+                                                        (Right Int
+                                                          (Right (Pair Int (Rec IL . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) IL)))
+                                                            (Left unit (Either Unit Unit))
+                                                          )
+                                                        )
+                                                      )
+                                                      (fold [(Rec IL . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) IL))] (Left unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) (Rec IL . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) IL)))))
+                                                    )
                                                   )
                                                 )
                                               )
                                             )
-                                            (fold [(Rec L . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec L . Either Unit (Pair I L))) (Either Unit (Either Unit Unit)))) L))] (Left unit (Pair (Rec I . Either Int (Either (Pair Int (Rec L . Either Unit (Pair I L))) (Either Unit (Either Unit Unit)))) (Rec L . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec L . Either Unit (Pair I L))) (Either Unit (Either Unit Unit)))) L)))))
+                                        else
+                                          mkpair (mkpair (Left unit (Rec W . Either Int (Pair W W))) ctx_after_x) (fold [(Rec IL . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) IL))] (Left unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) (Rec IL . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) IL)))))
+              | Right abs_node =>
+                  unpack abs_node into param_id, rest_abs in
+                    unpack rest_abs into param_type, body_expr in
+                      unpack ((comp (fold [(Rec L . Either Unit (Pair (Pair Int (Rec W . Either Int (Pair W W))) L))] (Right Unit (mkpair (mkpair param_id param_type) ctx)))) body_expr) into body_tc_res, body_code in
+                        unpack body_tc_res into body_res, ctx_after_body in
+                          match body_res with
+                            Left err => mkpair (mkpair (Left unit (Rec W . Either Int (Pair W W))) ctx_after_body) (fold [(Rec IL . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) IL))] (Left unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) (Rec IL . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) IL)))))
+                          | Right body_type =>
+                              mkpair
+                                (mkpair (Right Unit (fold [(Rec W . Either Int (Pair W W))] (Right Int (mkpair param_type body_type)))) ctx_after_body)
+                                (fold [(Rec IL . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) IL))]
+                                  (Right Unit
+                                    (mkpair
+                                      (fold [(Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit))))]
+                                        (Right Int
+                                          (Left
+                                            (mkpair param_id
+                                              ( ( ( fix
+                                                    ( \concat : Pi l1 : (Rec IL . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) IL)) . Pi l2 : (Rec IL . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) IL)) . (Rec IL . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) IL)) .
+                                                      \l1 : (Rec IL . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) IL)) . \l2 : (Rec IL . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) IL)) .
+                                                        match (unfold l1) with
+                                                          Left empty => l2
+                                                        | Right cnode =>
+                                                            unpack cnode into head, tail in
+                                                              (fold [(Rec IL . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) IL))]
+                                                                (Right Unit
+                                                                  (mkpair head ( ( (concat tail) l2 ) ))
+                                                                )
+                                                              )
+                                                    )
+                                                  ) body_code )
+                                                (fold [(Rec IL . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) IL))]
+                                                  (Right Unit
+                                                    (mkpair
+                                                      (fold [(Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit))))]
+                                                        (Right Int
+                                                          (Right (Pair Int (Rec IL . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) IL)))
+                                                            (Right Unit
+                                                              (Right Unit unit)
+                                                            )
+                                                          )
+                                                        )
+                                                      )
+                                                      (fold [(Rec IL . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) IL))] (Left unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) (Rec IL . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) IL)))))
+                                                    )
+                                                  )
+                                                )
+                                              )
+                                            )
+                                            (Either Unit (Either Unit Unit))
                                           )
                                         )
                                       )
+                                      (fold [(Rec IL . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) IL))] (Left unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) (Rec IL . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec IL . Either Unit (Pair I IL))) (Either Unit (Either Unit Unit)))) IL)))))
                                     )
                                   )
-                                  (Either Unit (Either Unit Unit))
                                 )
-                              )
-                            )
-                            (fold [(Rec L . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec L . Either Unit (Pair I L))) (Either Unit (Either Unit Unit)))) L))] (Left unit (Pair (Rec I . Either Int (Either (Pair Int (Rec L . Either Unit (Pair I L))) (Either Unit (Either Unit Unit)))) (Rec L . Either Unit (Pair (Rec I . Either Int (Either (Pair Int (Rec L . Either Unit (Pair I L))) (Either Unit (Either Unit Unit)))) L)))))
-                          )
-                        )
-                      )
-        )
-      )
     )
+  )
+)
