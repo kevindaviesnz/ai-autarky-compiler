@@ -66,11 +66,10 @@ impl VM {
                 Instruction::MakeLeft => { let val = self.stack.pop().ok_or("Stack Underflow")?; self.stack.push(Value::Left(Box::new(val))); }
                 Instruction::MakeRight => { let val = self.stack.pop().ok_or("Stack Underflow")?; self.stack.push(Value::Right(Box::new(val))); }
                 Instruction::BranchMatch(offset) => {
-                    let popped = self.stack.pop().ok_or("Stack Underflow")?;
-                    match popped {
+                    match self.stack.pop().ok_or("Stack Underflow")? {
                         Value::Left(val) => self.stack.push(*val),
                         Value::Right(val) => { self.stack.push(*val); pc += offset; continue; },
-                        _ => return Err(format!("Runtime Error: BranchMatch expected Either, got {:?}", popped))
+                        _ => return Err("Expected Either".to_string())
                     }
                 }
                 Instruction::Bind(name) => { let val = self.stack.pop().ok_or("Stack Underflow")?; self.env.insert(name.clone(), val); }
@@ -80,13 +79,7 @@ impl VM {
                     self.stack.push(Value::Pair(Box::new(l), Box::new(r))); 
                 }
                 Instruction::UnpackAndBind(a1, a2) => { 
-                    let popped = self.stack.pop().ok_or("Stack Underflow")?;
-                    if let Value::Pair(l, r) = popped { 
-                        self.env.insert(a1.clone(), *l); 
-                        self.env.insert(a2.clone(), *r); 
-                    } else {
-                        return Err(format!("Runtime Error: UnpackAndBind expected a Pair, but got {:?}", popped));
-                    }
+                    if let Value::Pair(l, r) = self.stack.pop().ok_or("Stack Underflow")? { self.env.insert(a1.clone(), *l); self.env.insert(a2.clone(), *r); } 
                 }
                 Instruction::JumpIfFalse(offset) => { if let Value::Bool(b) = self.stack.pop().ok_or("Stack Underflow")? { if !b { pc += offset; continue; } } }
                 Instruction::Jump(offset) => { pc += offset; continue; }
@@ -129,9 +122,9 @@ impl VM {
                                 let old_env2 = std::mem::replace(&mut self.env, u_e);
                                 self.env.insert(u_p, arg);
                                 let res = self.execute(&u_b); self.env = old_env2; if let Some(ret_val) = res? { self.stack.push(ret_val); }
-                            } else { return Err(format!("Unrolled body did not produce a Closure: {:?}", unrolled)); }
+                            } else { return Err("Not a closure".to_string()); }
                         }
-                        _ => return Err(format!("Attempted to Call a non-function value: {:?}", func)),
+                        _ => return Err("Not a closure".to_string()),
                     }
                 }
                 Instruction::Free => {

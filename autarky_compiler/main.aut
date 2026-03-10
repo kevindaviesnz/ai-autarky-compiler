@@ -1,6 +1,22 @@
 (
-  ( \source_code_array : Lin (Array Int) .
-      (free source_code_array)
+  ( \test_ast : (Rec T . Either Unit (Either (Rec W . Either Unit (Pair Int W)) (Either (Pair (Rec W . Either Unit (Pair Int W)) T) (Pair T T)))) .
+      ( \identity_lambda : (Rec T . Either Unit (Either (Rec W . Either Unit (Pair Int W)) (Either (Pair (Rec W . Either Unit (Pair Int W)) T) (Pair T T)))) .
+          unit
+      )
+      (fold [(Rec T . Either Unit (Either (Rec W . Either Unit (Pair Int W)) (Either (Pair (Rec W . Either Unit (Pair Int W)) T) (Pair T T))))]
+        (Right Unit
+          (Right Unit
+            (Left unit
+              (mkpair
+                (fold [(Rec W . Either Unit (Pair Int W))] (Right Unit (mkpair 120 (fold [(Rec W . Either Unit (Pair Int W))] (Left unit (Pair Int (Rec W . Either Unit (Pair Int W))))))))
+                (fold [(Rec T . Either Unit (Either (Rec W . Either Unit (Pair Int W)) (Either (Pair (Rec W . Either Unit (Pair Int W)) T) (Pair T T))))]
+                  (Right Unit (Left unit (fold [(Rec W . Either Unit (Pair Int W))] (Right Unit (mkpair 120 (fold [(Rec W . Either Unit (Pair Int W))] (Left unit (Pair Int (Rec W . Either Unit (Pair Int W))))))))))
+                )
+              )
+            )
+          )
+        )
+      )
   )
-  (read_file "main.aut")
+  unit
 )

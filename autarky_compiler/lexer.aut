@@ -1,0 +1,10 @@
+(
+  \byte : Int . 
+    if (byte == 32) then 
+      (Right (Right unit))  /* 32 is Space -> Unknown/Whitespace */
+    else 
+      if (byte == 97) then
+        (Right (Left "a"))  /* 97 is 'a' -> String Identifier */
+      else
+        (Left byte)         /* Otherwise, assume it's a number */
+)

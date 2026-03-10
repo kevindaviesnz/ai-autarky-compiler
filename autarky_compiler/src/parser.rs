@@ -4,13 +4,13 @@ use std::str::Chars;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
-    Ident(String), Number(u32), StringLit(String), // NEW
-    Lambda, Colon, Dot, LParen, RParen, Bang, Plus, Minus, EqEq, Lin, Pi, IntKw,
-    UnitKw, UnitValKw, BoolKw, TrueKw, FalseKw, StringKw, // NEW
+    Ident(String), Number(u32), StringLit(String),
+    Lambda, Colon, Dot, LParen, RParen, LBracket, RBracket, Bang, Plus, Minus, EqEq, Lin, Pi, IntKw, // LBracket, RBracket NEW
+    UnitKw, UnitValKw, BoolKw, TrueKw, FalseKw, StringKw,
     PairKw, MkPairKw, UnpackKw, EitherKw, LeftKw, RightKw, MatchKw, WithKw, FatArrow, Bar,      
     IfKw, ThenKw, ElseKw, FixKw, FreeKw, TypeUniv(u32), 
-    SplitKw, IntoKw, InKw, MergeKw, AndKw, Comma, ArrayKw, AllocKw, ReadKw, WriteKw, 
-    ReadFileKw, // NEW
+    SplitKw, IntoKw, InKw, MergeKw, AndKw, Comma, ArrayKw, AllocKw, ReadKw, WriteKw, ReadFileKw,
+    RecKw, FoldKw, UnfoldKw, // NEW
     Eof,
 }
 
@@ -23,13 +23,11 @@ impl<'a> Lexer<'a> {
         self.consume_whitespace();
         match self.chars.next() {
             Some('\\') => Token::Lambda, Some(':') => Token::Colon, Some('.') => Token::Dot,
-            Some('(') => Token::LParen, Some(')') => Token::RParen, Some('!') => Token::Bang,
-            Some(',') => Token::Comma, Some('+') => Token::Plus, Some('-') => Token::Minus, Some('|') => Token::Bar, 
-            Some('"') => { // NEW: Parse string literals
+            Some('(') => Token::LParen, Some(')') => Token::RParen, Some('[') => Token::LBracket, Some(']') => Token::RBracket,
+            Some('!') => Token::Bang, Some(',') => Token::Comma, Some('+') => Token::Plus, Some('-') => Token::Minus, Some('|') => Token::Bar, 
+            Some('"') => {
                 let mut s = String::new();
-                while let Some(&c) = self.chars.peek() {
-                    if c == '"' { self.chars.next(); break; } else { s.push(self.chars.next().unwrap()); }
-                }
+                while let Some(&c) = self.chars.peek() { if c == '"' { self.chars.next(); break; } else { s.push(self.chars.next().unwrap()); } }
                 Token::StringLit(s)
             }
             Some('=') => { 
@@ -39,17 +37,17 @@ impl<'a> Lexer<'a> {
                 let mut ident = String::from(c);
                 while let Some(&next_c) = self.chars.peek() { if next_c.is_alphanumeric() || next_c == '_' { ident.push(self.chars.next().unwrap()); } else { break; } }
                 match ident.as_str() {
-                    "Lin" => Token::Lin, "Pi" => Token::Pi, "Int" => Token::IntKw, "String" => Token::StringKw, // NEW
+                    "Lin" => Token::Lin, "Pi" => Token::Pi, "Int" => Token::IntKw, "String" => Token::StringKw, 
                     "Unit" => Token::UnitKw, "unit" => Token::UnitValKw, 
                     "Bool" => Token::BoolKw, "True" => Token::TrueKw, "False" => Token::FalseKw,
                     "Pair" => Token::PairKw, "mkpair" => Token::MkPairKw, "unpack" => Token::UnpackKw, 
                     "Either" => Token::EitherKw, "Left" => Token::LeftKw, "Right" => Token::RightKw, 
                     "match" => Token::MatchKw, "with" => Token::WithKw, 
-                    "Array" => Token::ArrayKw, "alloc" => Token::AllocKw, "read" => Token::ReadKw, "write" => Token::WriteKw, 
-                    "read_file" => Token::ReadFileKw, // NEW
+                    "Array" => Token::ArrayKw, "alloc" => Token::AllocKw, "read" => Token::ReadKw, "write" => Token::WriteKw, "read_file" => Token::ReadFileKw,
                     "if" => Token::IfKw, "then" => Token::ThenKw, "else" => Token::ElseKw,     
                     "fix" => Token::FixKw, "free" => Token::FreeKw, 
                     "split" => Token::SplitKw, "into" => Token::IntoKw, "in" => Token::InKw, "merge" => Token::MergeKw, "and" => Token::AndKw,
+                    "Rec" => Token::RecKw, "fold" => Token::FoldKw, "unfold" => Token::UnfoldKw, // NEW
                     s if s.starts_with("Type_") => Token::TypeUniv(s[5..].parse().unwrap()),
                     _ => Token::Ident(ident),
                 }
@@ -87,12 +85,20 @@ impl Parser {
             Token::IntKw => { self.advance(); Ok(Type::Int) }
             Token::UnitKw => { self.advance(); Ok(Type::Unit) }
             Token::BoolKw => { self.advance(); Ok(Type::Bool) }
-            Token::StringKw => { self.advance(); Ok(Type::String) } // NEW
+            Token::StringKw => { self.advance(); Ok(Type::String) } 
             Token::PairKw => { self.advance(); Ok(Type::Pair(Box::new(self.parse_type()?), Box::new(self.parse_type()?))) }
             Token::EitherKw => { self.advance(); Ok(Type::Either(Box::new(self.parse_type()?), Box::new(self.parse_type()?))) }
             Token::ArrayKw => { self.advance(); Ok(Type::Array(Box::new(self.parse_type()?))) }
             Token::Bang => { self.advance(); Ok(Type::Persistent(Box::new(self.parse_type()?))) }
             Token::Lin => { self.advance(); Ok(Type::Linear(Permission::Full, Box::new(self.parse_type()?))) }
+            Token::RecKw => { // NEW: Parse Rec X . Type
+                self.advance();
+                if let Token::Ident(name) = self.advance().clone() {
+                    self.expect(Token::Dot)?;
+                    Ok(Type::Rec(name, Box::new(self.parse_type()?)))
+                } else { Err("Expected identifier for Rec".to_string()) }
+            }
+            Token::Ident(name) => { self.advance(); Ok(Type::TVar(name)) } // NEW: Parse Type Variables
             Token::Pi => {
                 self.advance();
                 if let Token::Ident(p) = self.advance().clone() {
@@ -106,7 +112,7 @@ impl Parser {
     pub fn parse_term(&mut self) -> Result<Term, String> {
         match self.peek().clone() {
             Token::Number(n) => { self.advance(); Ok(Term::IntVal(n)) }
-            Token::StringLit(s) => { self.advance(); Ok(Term::StringVal(s)) } // NEW
+            Token::StringLit(s) => { self.advance(); Ok(Term::StringVal(s)) } 
             Token::UnitValKw => { self.advance(); Ok(Term::UnitVal) }
             Token::TrueKw => { self.advance(); Ok(Term::BoolVal(true)) }
             Token::FalseKw => { self.advance(); Ok(Term::BoolVal(false)) }
@@ -116,7 +122,12 @@ impl Parser {
             Token::AllocKw => { self.advance(); let s = self.parse_term()?; let i = self.parse_term()?; Ok(Term::Alloc(Box::new(s), Box::new(i))) }
             Token::ReadKw => { self.advance(); let a = self.parse_term()?; let i = self.parse_term()?; Ok(Term::Read(Box::new(a), Box::new(i))) }
             Token::WriteKw => { self.advance(); let a = self.parse_term()?; let i = self.parse_term()?; let v = self.parse_term()?; Ok(Term::Write(Box::new(a), Box::new(i), Box::new(v))) }
-            Token::ReadFileKw => { self.advance(); Ok(Term::ReadFile(Box::new(self.parse_term()?))) } // NEW
+            Token::ReadFileKw => { self.advance(); Ok(Term::ReadFile(Box::new(self.parse_term()?))) }
+            Token::FoldKw => { // NEW: Parse fold [Type] term
+                self.advance(); self.expect(Token::LBracket)?; let ty = self.parse_type()?; self.expect(Token::RBracket)?;
+                Ok(Term::Fold(ty, Box::new(self.parse_term()?)))
+            }
+            Token::UnfoldKw => { self.advance(); Ok(Term::Unfold(Box::new(self.parse_term()?))) } // NEW
             Token::MatchKw => { 
                 self.advance(); let tgt = self.parse_term()?; self.expect(Token::WithKw)?; self.expect(Token::LeftKw)?;
                 let id_l = if let Token::Ident(n) = self.advance().clone() { n } else { return Err("Expected id".to_string()) };
