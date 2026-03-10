@@ -5,12 +5,12 @@ use std::str::Chars;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
     Ident(String), Number(u32), StringLit(String),
-    Lambda, Colon, Dot, LParen, RParen, LBracket, RBracket, Bang, Plus, Minus, EqEq, Lin, Pi, IntKw, // LBracket, RBracket NEW
+    Lambda, Colon, Dot, LParen, RParen, LBracket, RBracket, Bang, Plus, Minus, EqEq, Lin, Pi, IntKw,
     UnitKw, UnitValKw, BoolKw, TrueKw, FalseKw, StringKw,
     PairKw, MkPairKw, UnpackKw, EitherKw, LeftKw, RightKw, MatchKw, WithKw, FatArrow, Bar,      
     IfKw, ThenKw, ElseKw, FixKw, FreeKw, TypeUniv(u32), 
     SplitKw, IntoKw, InKw, MergeKw, AndKw, Comma, ArrayKw, AllocKw, ReadKw, WriteKw, ReadFileKw,
-    RecKw, FoldKw, UnfoldKw, // NEW
+    RecKw, FoldKw, UnfoldKw,
     Eof,
 }
 
@@ -47,7 +47,7 @@ impl<'a> Lexer<'a> {
                     "if" => Token::IfKw, "then" => Token::ThenKw, "else" => Token::ElseKw,     
                     "fix" => Token::FixKw, "free" => Token::FreeKw, 
                     "split" => Token::SplitKw, "into" => Token::IntoKw, "in" => Token::InKw, "merge" => Token::MergeKw, "and" => Token::AndKw,
-                    "Rec" => Token::RecKw, "fold" => Token::FoldKw, "unfold" => Token::UnfoldKw, // NEW
+                    "Rec" => Token::RecKw, "fold" => Token::FoldKw, "unfold" => Token::UnfoldKw,
                     s if s.starts_with("Type_") => Token::TypeUniv(s[5..].parse().unwrap()),
                     _ => Token::Ident(ident),
                 }
@@ -91,14 +91,14 @@ impl Parser {
             Token::ArrayKw => { self.advance(); Ok(Type::Array(Box::new(self.parse_type()?))) }
             Token::Bang => { self.advance(); Ok(Type::Persistent(Box::new(self.parse_type()?))) }
             Token::Lin => { self.advance(); Ok(Type::Linear(Permission::Full, Box::new(self.parse_type()?))) }
-            Token::RecKw => { // NEW: Parse Rec X . Type
+            Token::RecKw => {
                 self.advance();
                 if let Token::Ident(name) = self.advance().clone() {
                     self.expect(Token::Dot)?;
                     Ok(Type::Rec(name, Box::new(self.parse_type()?)))
                 } else { Err("Expected identifier for Rec".to_string()) }
             }
-            Token::Ident(name) => { self.advance(); Ok(Type::TVar(name)) } // NEW: Parse Type Variables
+            Token::Ident(name) => { self.advance(); Ok(Type::TVar(name)) }
             Token::Pi => {
                 self.advance();
                 if let Token::Ident(p) = self.advance().clone() {
@@ -123,11 +123,11 @@ impl Parser {
             Token::ReadKw => { self.advance(); let a = self.parse_term()?; let i = self.parse_term()?; Ok(Term::Read(Box::new(a), Box::new(i))) }
             Token::WriteKw => { self.advance(); let a = self.parse_term()?; let i = self.parse_term()?; let v = self.parse_term()?; Ok(Term::Write(Box::new(a), Box::new(i), Box::new(v))) }
             Token::ReadFileKw => { self.advance(); Ok(Term::ReadFile(Box::new(self.parse_term()?))) }
-            Token::FoldKw => { // NEW: Parse fold [Type] term
+            Token::FoldKw => {
                 self.advance(); self.expect(Token::LBracket)?; let ty = self.parse_type()?; self.expect(Token::RBracket)?;
                 Ok(Term::Fold(ty, Box::new(self.parse_term()?)))
             }
-            Token::UnfoldKw => { self.advance(); Ok(Term::Unfold(Box::new(self.parse_term()?))) } // NEW
+            Token::UnfoldKw => { self.advance(); Ok(Term::Unfold(Box::new(self.parse_term()?))) }
             Token::MatchKw => { 
                 self.advance(); let tgt = self.parse_term()?; self.expect(Token::WithKw)?; self.expect(Token::LeftKw)?;
                 let id_l = if let Token::Ident(n) = self.advance().clone() { n } else { return Err("Expected id".to_string()) };
@@ -182,6 +182,10 @@ impl Parser {
                 else if self.peek() == &Token::EqEq { self.advance(); let t2 = self.parse_term()?; self.expect(Token::RParen)?; Ok(Term::Eq(Box::new(t1), Box::new(t2))) }
                 else if self.peek() == &Token::RParen { self.advance(); Ok(t1) }
                 else { let t2 = self.parse_term()?; self.expect(Token::RParen)?; Ok(Term::App(Box::new(t1), Box::new(t2))) }
+            }
+            Token::EitherKw | Token::PairKw => {
+                // If Either or Pair appear in a term position unexpectedly
+                Err(format!("Token {:?} found in term position. Did you mean to use it in a type?", self.peek()))
             }
             _ => Err(format!("Unexpected term token: {:?}", self.peek())),
         }
