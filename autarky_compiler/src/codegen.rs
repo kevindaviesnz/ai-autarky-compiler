@@ -35,6 +35,7 @@ pub fn generate_bytecode(ir: &IRTerm) -> Vec<Instruction> {
             code_r.push(Instruction::Bind(id_r.clone())); 
             code_r.extend(generate_bytecode(b_r));
             
+            // RESTORED: Your original, correct + 1 offset
             code_l.push(Instruction::Jump(code_r.len() + 1));
             code.push(Instruction::BranchMatch(code_l.len() + 1));
             code.extend(code_l); 
@@ -74,6 +75,8 @@ pub fn generate_bytecode(ir: &IRTerm) -> Vec<Instruction> {
             code.extend(generate_bytecode(c));
             let mut t_code = generate_bytecode(t); 
             let f_code = generate_bytecode(f);
+            
+            // RESTORED: Your original, correct + 1 offset
             t_code.push(Instruction::Jump(f_code.len() + 1));
             code.push(Instruction::JumpIfFalse(t_code.len() + 1));
             code.extend(t_code); 
@@ -109,7 +112,6 @@ pub fn generate_bytecode(ir: &IRTerm) -> Vec<Instruction> {
             code.push(Instruction::MakeClosure(p.clone(), generate_bytecode(b)));
         }
         IRTerm::App(t1, t2) => { 
-            // The argument must be pushed to the stack first, then the closure
             code.extend(generate_bytecode(t2)); 
             code.extend(generate_bytecode(t1)); 
             code.push(Instruction::Call); 
