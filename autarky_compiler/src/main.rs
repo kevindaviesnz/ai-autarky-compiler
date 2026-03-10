@@ -32,20 +32,31 @@ fn main() {
 
     let source_code = match fs::read_to_string(&cli.file) {
         Ok(code) => code,
-        Err(e) => { eprintln!("❌ Failed to read file '{}': {}", cli.file, e); std::process::exit(1); }
+        Err(e) => { 
+            eprintln!("❌ Failed to read file '{}': {}", cli.file, e); 
+            std::process::exit(1); 
+        }
     };
 
     let mut parser = parser::Parser::new(&source_code);
     let ast = match parser.parse_term() {
         Ok(term) => term,
-        Err(e) => { eprintln!("❌ Parsing Failed!\n{}", e); std::process::exit(1); }
+        Err(e) => { 
+            eprintln!("❌ Parsing Failed!\n{}", e); 
+            std::process::exit(1); 
+        }
     };
 
     let mut ctx = Context::new();
-    ctx.insert("memory_ptr".to_string(), Resource::Linear(Type::Linear(Permission::Full, Box::new(Type::Universe(1)))));
+    ctx.insert(
+        "memory_ptr".to_string(), 
+        Resource::Linear(Type::Linear(Permission::Full, Box::new(Type::Universe(1))))
+    );
 
     if let Err(e) = ctx.check(&ast) {
-        eprintln!("❌ Verification Failed!"); eprintln!("{}", e); std::process::exit(1);
+        eprintln!("❌ Verification Failed!"); 
+        eprintln!("{}", e); 
+        std::process::exit(1);
     }
     println!("✅ Type Check Passed (Memory Safety Guaranteed)");
 
@@ -62,8 +73,46 @@ fn main() {
     runtime.insert_global("memory_ptr".to_string(), Value::MemoryAddress(0xDEADBEEF));
 
     match runtime.execute(&bytecode) {
-        Ok(Some(result)) => { println!("✅ Execution Finished Successfully!"); println!("-> Return Value: {:?}", result); }
-        Ok(None) => { println!("✅ Execution Finished (No Return Value)"); }
-        Err(e) => { eprintln!("💥 VM Panic!"); eprintln!("{}", e); std::process::exit(1); }
+        Ok(Some(result)) => { 
+            println!("✅ Execution Finished Successfully!"); 
+            println!("-> Raw Return Value: {:?}", result); 
+
+            if let Value::Pair(_proof, bytecode_val) = &result {
+                println!("----------------------------------------");
+                println!("🧩 Parsing Self-Hosted Compiler Output...");
+                
+                let parsed_instructions = codegen::parse_autarky_bytecode(bytecode_val);
+                
+                println!("✅ Native Rust Bytecode Generated from Autarky:");
+                println!("{:#?}", parsed_instructions);
+
+                println!("----------------------------------------");
+                println!("🧪 Testing Self-Compiled Code...");
+                
+                // Construct a test: Push(42) + [Generated Closure] + Call
+                let mut test_program = vec![codegen::Instruction::PushInt(42)];
+                test_program.extend(parsed_instructions);
+                test_program.push(codegen::Instruction::Call);
+
+                let mut test_vm = VM::new();
+                match test_vm.execute(&test_program) {
+                    Ok(Some(final_val)) => {
+                        println!("✨ SELF-EXECUTION SUCCESS!");
+                        println!("-> Sent: Int(42)");
+                        println!("-> Received: {:?}", final_val);
+                    }
+                    Ok(None) => println!("❌ Test returned no value."),
+                    Err(e) => println!("💥 Test VM Panic: {}", e),
+                }
+            }
+        }
+        Ok(None) => { 
+            println!("✅ Execution Finished (No Return Value)"); 
+        }
+        Err(e) => { 
+            eprintln!("💥 VM Panic!"); 
+            eprintln!("{}", e); 
+            std::process::exit(1); 
+        }
     }
 }

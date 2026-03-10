@@ -1,4 +1,5 @@
 use crate::ir::IRTerm;
+use crate::vm::Value;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Instruction {
@@ -35,7 +36,6 @@ pub fn generate_bytecode(ir: &IRTerm) -> Vec<Instruction> {
             code_r.push(Instruction::Bind(id_r.clone())); 
             code_r.extend(generate_bytecode(b_r));
             
-            // RESTORED: Your original, correct + 1 offset
             code_l.push(Instruction::Jump(code_r.len() + 1));
             code.push(Instruction::BranchMatch(code_l.len() + 1));
             code.extend(code_l); 
@@ -76,7 +76,6 @@ pub fn generate_bytecode(ir: &IRTerm) -> Vec<Instruction> {
             let mut t_code = generate_bytecode(t); 
             let f_code = generate_bytecode(f);
             
-            // RESTORED: Your original, correct + 1 offset
             t_code.push(Instruction::Jump(f_code.len() + 1));
             code.push(Instruction::JumpIfFalse(t_code.len() + 1));
             code.extend(t_code); 
@@ -119,4 +118,80 @@ pub fn generate_bytecode(ir: &IRTerm) -> Vec<Instruction> {
         IRTerm::Erased => {}
     }
     code
+}
+
+/* ========================================================================
+AUTARKY TO RUST BRIDGE (STAGE 5 PARSER)
+========================================================================
+*/
+
+pub fn parse_autarky_bytecode(val: &Value) -> Vec<Instruction> {
+    let mut code = Vec::new();
+    let mut current = val;
+
+    loop {
+        match current {
+            Value::Left(inner) => {
+                if matches!(**inner, Value::Unit) {
+                    break; // Left(Unit) is the null terminator
+                } else {
+                    panic!("Unexpected Left value in list backbone: {:?}", inner);
+                }
+            }
+            Value::Right(inner) => {
+                if let Value::Pair(head, tail) = &**inner {
+                    code.push(parse_single_instruction(head));
+                    current = tail;
+                } else {
+                    panic!("Expected Pair in list Cons node");
+                }
+            }
+            _ => panic!("Invalid list structure: {:?}", current),
+        }
+    }
+    code
+}
+
+fn parse_single_instruction(val: &Value) -> Instruction {
+    match val {
+        // PushVar: Left(Int(x))
+        Value::Left(inner) => {
+            if let Value::Int(x) = &**inner {
+                Instruction::PushVar(x.to_string())
+            } else {
+                panic!("Expected Int inside PushVar instruction");
+            }
+        }
+        Value::Right(r1) => match &**r1 {
+            // MakeClosure: Left(Pair(Int(p), body))
+            Value::Left(l2) => {
+                if let Value::Pair(p_val, body_val) = &**l2 {
+                    if let Value::Int(p) = &**p_val {
+                        let body = parse_autarky_bytecode(body_val);
+                        Instruction::MakeClosure(p.to_string(), body)
+                    } else {
+                        panic!("Expected Int for MakeClosure parameter");
+                    }
+                } else {
+                    panic!("Expected Pair in MakeClosure instruction");
+                }
+            }
+            Value::Right(r2) => match &**r2 {
+                // Call: Left(Unit)
+                Value::Left(_) => Instruction::Call,
+                
+                Value::Right(r3) => match &**r3 {
+                    // Free: Left(Unit)
+                    Value::Left(_) => Instruction::Free,
+                    
+                    // Return: Right(Unit)
+                    Value::Right(_) => Instruction::Return,
+                    _ => panic!("Invalid instruction sequence encoding (level 3)"),
+                },
+                _ => panic!("Invalid instruction sequence encoding (level 2)"),
+            },
+            _ => panic!("Invalid instruction sequence encoding (level 1)"),
+        },
+        _ => panic!("Unknown instruction encoding: {:?}", val),
+    }
 }
