@@ -121,7 +121,7 @@ pub fn generate_bytecode(ir: &IRTerm) -> Vec<Instruction> {
 }
 
 /* ========================================================================
-AUTARKY TO RUST BRIDGE (STAGE 5 PARSER)
+AUTARKY TO RUST BRIDGE (STAGE 7 PARSER)
 ========================================================================
 */
 
@@ -133,7 +133,7 @@ pub fn parse_autarky_bytecode(val: &Value) -> Vec<Instruction> {
         match current {
             Value::Left(inner) => {
                 if matches!(**inner, Value::Unit) {
-                    break; // Left(Unit) is the null terminator
+                    break;
                 } else {
                     panic!("Unexpected Left value in list backbone: {:?}", inner);
                 }
@@ -154,7 +154,7 @@ pub fn parse_autarky_bytecode(val: &Value) -> Vec<Instruction> {
 
 fn parse_single_instruction(val: &Value) -> Instruction {
     match val {
-        // PushVar: Left(Int(x))
+        // 1. PushVar: Left(Int)
         Value::Left(inner) => {
             if let Value::Int(x) = &**inner {
                 Instruction::PushVar(x.to_string())
@@ -163,7 +163,7 @@ fn parse_single_instruction(val: &Value) -> Instruction {
             }
         }
         Value::Right(r1) => match &**r1 {
-            // MakeClosure: Left(Pair(Int(p), body))
+            // 2. MakeClosure: Right(Left(Pair(Int, IL)))
             Value::Left(l2) => {
                 if let Value::Pair(p_val, body_val) = &**l2 {
                     if let Value::Int(p) = &**p_val {
@@ -177,20 +177,36 @@ fn parse_single_instruction(val: &Value) -> Instruction {
                 }
             }
             Value::Right(r2) => match &**r2 {
-                // Call: Left(Unit)
+                // 3. Call: Right(Right(Left(Unit)))
                 Value::Left(_) => Instruction::Call,
                 
                 Value::Right(r3) => match &**r3 {
-                    // Free: Left(Unit)
-                    Value::Left(_) => Instruction::Free,
+                    // 4. Return: Right(Right(Right(Left(Unit))))
+                    Value::Left(_) => Instruction::Return,
                     
-                    // Return: Right(Unit)
-                    Value::Right(_) => Instruction::Return,
-                    _ => panic!("Invalid instruction sequence encoding (level 3)"),
+                    Value::Right(r4) => match &**r4 {
+                        // 5. MakePair: Right(Right(Right(Right(Left(Unit)))))
+                        Value::Left(_) => Instruction::MakePair,
+                        
+                        // 6. Unpack: Right(Right(Right(Right(Right(Pair(Int, Int))))))
+                        Value::Right(r5) => {
+                            if let Value::Pair(v1, v2) = &**r5 {
+                                if let (Value::Int(id1), Value::Int(id2)) = (&**v1, &**v2) {
+                                    Instruction::UnpackAndBind(id1.to_string(), id2.to_string())
+                                } else {
+                                    panic!("Expected Ints in Unpack instruction");
+                                }
+                            } else {
+                                panic!("Expected Pair in Unpack instruction");
+                            }
+                        }
+                        _ => panic!("Expected Left or Right encoding instruction (level 4)"),
+                    },
+                    _ => panic!("Expected Left or Right encoding instruction (level 3)"),
                 },
-                _ => panic!("Invalid instruction sequence encoding (level 2)"),
+                _ => panic!("Expected Left or Right encoding instruction (level 2)"),
             },
-            _ => panic!("Invalid instruction sequence encoding (level 1)"),
+            _ => panic!("Expected Left or Right encoding instruction (level 1)"),
         },
         _ => panic!("Unknown instruction encoding: {:?}", val),
     }
