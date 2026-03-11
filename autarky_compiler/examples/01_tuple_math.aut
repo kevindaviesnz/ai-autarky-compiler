@@ -1,0 +1,5 @@
+// We define the function and immediately apply it to (mkpair 10 11)
+( \input : Pair Int Int .
+    unpack input into a, b in
+      a + b
+) (mkpair 10 11)

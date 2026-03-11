@@ -1,0 +1,8 @@
+// We define the branching function and immediately apply it to (InLeft 10)
+( \coin_flip : Either Int Int .
+    match coin_flip with
+      Left heads_val => 
+        heads_val + 100
+    | Right tails_val => 
+        tails_val - 50
+) (Left 10)
