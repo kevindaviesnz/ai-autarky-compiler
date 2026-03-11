@@ -89,8 +89,12 @@ fn main() {
                 println!("----------------------------------------");
                 println!("🧪 Testing Self-Compiled Code...");
                 
-                // Construct a test: Push(42) + [Generated Closure] + Call
-                let mut test_program = vec![codegen::Instruction::PushInt(42)];
+                // Construct a test: Push(10) + Push(11) + MakePair + [Generated Closure] + Call
+                let mut test_program = vec![
+                    codegen::Instruction::PushInt(10),
+                    codegen::Instruction::PushInt(11),
+                    codegen::Instruction::MakePair,
+                ];
                 test_program.extend(parsed_instructions);
                 test_program.push(codegen::Instruction::Call);
 
@@ -98,7 +102,7 @@ fn main() {
                 match test_vm.execute(&test_program) {
                     Ok(Some(final_val)) => {
                         println!("✨ SELF-EXECUTION SUCCESS!");
-                        println!("-> Sent: Int(42)");
+                        println!("-> Sent: Pair(10, 11)");
                         println!("-> Received: {:?}", final_val);
                     }
                     Ok(None) => println!("❌ Test returned no value."),

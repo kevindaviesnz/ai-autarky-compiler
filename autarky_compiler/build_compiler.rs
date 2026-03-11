@@ -10,21 +10,13 @@ fn build_either(types: &[String]) -> String {
 
 fn make_inst(variant_idx: usize, payload: &str, t_i: &str, t_il: &str) -> String {
     let unrolled = vec![
-        "Int".to_string(),
-        format!("(Pair Int {})", t_il),
-        "Unit".to_string(),
-        "Unit".to_string(),
-        "Unit".to_string(),
-        "(Pair Int Int)".to_string(),
-        "Unit".to_string(),
-        "Unit".to_string(),
+        "Int".to_string(), format!("(Pair Int {})", t_il), "Unit".to_string(), "Unit".to_string(),
+        "Unit".to_string(), "(Pair Int Int)".to_string(), "Unit".to_string(), "Unit".to_string(),
         format!("(Pair {} {})", t_il, t_il),
     ];
     let mut current = payload.to_string();
-    if variant_idx == unrolled.len() - 1 {
-    } else {
-        let rest = &unrolled[variant_idx + 1..];
-        let either_rest = build_either(rest);
+    if variant_idx < unrolled.len() - 1 {
+        let either_rest = build_either(&unrolled[variant_idx + 1..]);
         current = format!("(Left {} {})", current, either_rest);
     }
     for i in (0..variant_idx).rev() {
@@ -35,21 +27,14 @@ fn make_inst(variant_idx: usize, payload: &str, t_i: &str, t_il: &str) -> String
 
 fn make_expr(variant_idx: usize, payload: &str, t_e: &str, t_w: &str) -> String {
     let types = vec![
-        "Int".to_string(),
-        "(Pair __E__ __E__)".to_string(),
-        format!("(Pair Int (Pair {} __E__))", t_w),
-        "(Pair __E__ __E__)".to_string(),
-        "(Pair __E__ (Pair Int (Pair Int __E__)))".to_string(),
-        "__E__".to_string(),
-        "__E__".to_string(),
-        "(Pair __E__ (Pair Int (Pair __E__ (Pair Int __E__))))".to_string(),
+        "Int".to_string(), "(Pair __E__ __E__)".to_string(), format!("(Pair Int (Pair {} __E__))", t_w),
+        "(Pair __E__ __E__)".to_string(), "(Pair __E__ (Pair Int (Pair Int __E__)))".to_string(),
+        "__E__".to_string(), "__E__".to_string(), "(Pair __E__ (Pair Int (Pair __E__ (Pair Int __E__))))".to_string(),
     ];
     let unrolled: Vec<String> = types.iter().map(|s| s.replace("__E__", t_e)).collect();
     let mut current = payload.to_string();
-    if variant_idx == unrolled.len() - 1 {
-    } else {
-        let rest_types = &unrolled[variant_idx + 1..];
-        let either_rest = build_either(rest_types);
+    if variant_idx < unrolled.len() - 1 {
+        let either_rest = build_either(&unrolled[variant_idx + 1..]);
         current = format!("(Left {} {})", current, either_rest);
     }
     for i in (0..variant_idx).rev() {
@@ -66,8 +51,7 @@ fn main() {
         "(Pair __E__ __E__)".to_string(), "(Pair __E__ (Pair Int (Pair Int __E__)))".to_string(),
         "__E__".to_string(), "__E__".to_string(), "(Pair __E__ (Pair Int (Pair __E__ (Pair Int __E__))))".to_string(),
     ];
-    let t_e_body = build_either(&ast_variants).replace("__E__", "E");
-    let t_e = format!("(Rec E . {})", t_e_body);
+    let t_e = format!("(Rec E . {})", build_either(&ast_variants).replace("__E__", "E"));
 
     let t_il_rec = "(Rec IL . Either Unit (Pair I IL))".to_string();
     let inst_variants = vec![
@@ -75,29 +59,34 @@ fn main() {
         "Unit".to_string(), "(Pair Int Int)".to_string(), "Unit".to_string(), "Unit".to_string(),
         format!("(Pair {} {})", t_il_rec, t_il_rec),
     ];
-    let t_i_body = build_either(&inst_variants);
-    let t_i = format!("(Rec I . {})", t_i_body);
+    let t_i = format!("(Rec I . {})", build_either(&inst_variants));
     let t_il = format!("(Rec IL . Either Unit (Pair {} IL))", t_i);
     let t_l = format!("(Rec L . Either Unit (Pair (Pair Int {}) L))", t_w);
 
-    let v_120 = make_expr(0, "120", &t_e, &t_w);
-    let in_left = make_expr(5, &v_120, &t_e, &t_w);
+    let t_pair = format!("(fold [{t_w}] (Right Int (mkpair (fold [{t_w}] (Left 1 (Pair {t_w} {t_w}))) (fold [{t_w}] (Left 1 (Pair {t_w} {t_w}))))))");
+    
+    let v_a = make_expr(0, "10", &t_e, &t_w);
+    let in_left_a = make_expr(5, &v_a, &t_e, &t_w);
     let v_x = make_expr(0, "1", &t_e, &t_w);
     let v_y = make_expr(0, "2", &t_e, &t_w);
-    let match_payload = format!("(mkpair {} (mkpair 1 (mkpair {} (mkpair 2 {}))))", in_left, v_x, v_y);
-    let mock_expr = make_expr(7, &match_payload, &t_e, &t_w);
+    
+    let match_ast = make_expr(7, &format!("(mkpair {} (mkpair 1 (mkpair {} (mkpair 2 {}))))", in_left_a, v_x, v_y), &t_e, &t_w);
+    
+    let v_99 = make_expr(0, "99", &t_e, &t_w);
+    let unpack_ast = make_expr(4, &format!("(mkpair {} (mkpair 10 (mkpair 11 {})))", v_99, match_ast), &t_e, &t_w);
+    
+    let mock_expr = make_expr(2, &format!("(mkpair 99 (mkpair {} {}))", t_pair, unpack_ast), &t_e, &t_w);
 
     let inst_pushvar = make_inst(0, "var_id", &t_i, &t_il);
     let inst_makeleft = make_inst(6, "unit", &t_i, &t_il);
     let inst_makeright = make_inst(7, "unit", &t_i, &t_il);
     let inst_branchmatch = make_inst(8, "(mkpair l_code r_code)", &t_i, &t_il);
+    let inst_unpack = make_inst(5, "(mkpair a1_id a2_id)", &t_i, &t_il);
+    let inst_makeclosure = make_inst(1, "(mkpair param_id body_code)", &t_i, &t_il);
 
     let concat_def = format!("( fix ( \\concat : Pi l1 : {t_il} . Pi l2 : {t_il} . {t_il} . \\l1 : {t_il} . \\l2 : {t_il} . match (unfold l1) with Left empty => l2 | Right cnode => unpack cnode into head, tail in (fold [{t_il}] (Right Unit (mkpair head ( ( (concat tail) l2 ) )))) ) )");
 
-    // Pre-load the mock context with [120 : Int] so the VM doesn't panic
-    let t_int = format!("(fold [{t_w}] (Left 1 (Pair {t_w} {t_w})))");
-    let empty_ctx = format!("(fold [{t_l}] (Left unit (Pair (Pair Int {t_w}) {t_l})))");
-    let mock_ctx = format!("(fold [{t_l}] (Right Unit (mkpair (mkpair 120 {t_int}) {empty_ctx})))");
+    let mock_ctx = format!("(fold [{t_l}] (Left unit (Pair (Pair Int {t_w}) {t_l})))");
 
     let template = format!(r#"
 (
@@ -124,11 +113,29 @@ fn main() {
         | Right node1 => match node1 with
             Left app_node => mkpair (mkpair (Left unit {t_w}) ctx) (fold [{t_il}] (Left unit (Pair {t_i} {t_il})))
           | Right node2 => match node2 with
-              Left abs_node => mkpair (mkpair (Left unit {t_w}) ctx) (fold [{t_il}] (Left unit (Pair {t_i} {t_il})))
+              Left abs_node => 
+                unpack abs_node into param_id, rest_abs in
+                unpack rest_abs into param_type, body_expr in
+                  unpack ((comp (fold [{t_l}] (Right Unit (mkpair (mkpair param_id param_type) ctx)))) body_expr) into body_tc, body_code in
+                  unpack body_tc into body_res, ctx_after_body in
+                    match body_res with
+                      Left err => mkpair (mkpair (Left unit {t_w}) ctx_after_body) (fold [{t_il}] (Left unit (Pair {t_i} {t_il})))
+                    | Right actual_body_type =>
+                        mkpair (mkpair (Right Unit (fold [{t_w}] (Right Int (mkpair param_type actual_body_type)))) ctx_after_body)
+                               (fold [{t_il}] (Right Unit (mkpair {inst_makeclosure} (fold [{t_il}] (Left unit (Pair {t_i} {t_il}))))))
             | Right node3 => match node3 with
                 Left mkpair_node => mkpair (mkpair (Left unit {t_w}) ctx) (fold [{t_il}] (Left unit (Pair {t_i} {t_il})))
               | Right node4 => match node4 with
-                  Left unpack_node => mkpair (mkpair (Left unit {t_w}) ctx) (fold [{t_il}] (Left unit (Pair {t_i} {t_il})))
+                  Left unpack_node => 
+                    unpack unpack_node into tgt_expr, rest1 in
+                    unpack rest1 into a1_id, rest2 in
+                    unpack rest2 into a2_id, body_expr in
+                      unpack ((comp ctx) tgt_expr) into tgt_tc, tgt_code in
+                      unpack tgt_tc into tgt_res, ctx_after_tgt in
+                        unpack ((comp (fold [{t_l}] (Right Unit (mkpair (mkpair a2_id (fold [{t_w}] (Left 1 (Pair {t_w} {t_w})))) (fold [{t_l}] (Right Unit (mkpair (mkpair a1_id (fold [{t_w}] (Left 1 (Pair {t_w} {t_w})))) ctx_after_tgt))))))) body_expr) into body_tc, body_code in
+                        unpack body_tc into body_res, ctx_after_body in
+                          mkpair (mkpair body_res ctx_after_body)
+                                 ( ( {concat_def} tgt_code ) (fold [{t_il}] (Right Unit (mkpair {inst_unpack} body_code))) )
                 | Right node5 => match node5 with
                     Left inleft_node => 
                       unpack ((comp ctx) inleft_node) into res, code in
@@ -156,5 +163,5 @@ fn main() {
 "#);
 
     fs::write("main.aut", template).unwrap();
-    println!("Stage 8 Bootstrapper: Postfix Branching Engine Generated!");
+    println!("Stage 9 Singularity: Type-Safe AST Generated!");
 }
