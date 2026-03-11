@@ -121,7 +121,7 @@ pub fn generate_bytecode(ir: &IRTerm) -> Vec<Instruction> {
 }
 
 /* ========================================================================
-AUTARKY TO RUST BRIDGE (STAGE 7 PARSER)
+AUTARKY TO RUST BRIDGE (STAGE 8 PARSER)
 ========================================================================
 */
 
@@ -140,7 +140,7 @@ pub fn parse_autarky_bytecode(val: &Value) -> Vec<Instruction> {
             }
             Value::Right(inner) => {
                 if let Value::Pair(head, tail) = &**inner {
-                    code.push(parse_single_instruction(head));
+                    flatten_instruction(head, &mut code);
                     current = tail;
                 } else {
                     panic!("Expected Pair in list Cons node");
@@ -152,12 +152,12 @@ pub fn parse_autarky_bytecode(val: &Value) -> Vec<Instruction> {
     code
 }
 
-fn parse_single_instruction(val: &Value) -> Instruction {
+fn flatten_instruction(val: &Value, code: &mut Vec<Instruction>) {
     match val {
         // 1. PushVar: Left(Int)
         Value::Left(inner) => {
             if let Value::Int(x) = &**inner {
-                Instruction::PushVar(x.to_string())
+                code.push(Instruction::PushVar(x.to_string()));
             } else {
                 panic!("Expected Int inside PushVar instruction");
             }
@@ -168,7 +168,7 @@ fn parse_single_instruction(val: &Value) -> Instruction {
                 if let Value::Pair(p_val, body_val) = &**l2 {
                     if let Value::Int(p) = &**p_val {
                         let body = parse_autarky_bytecode(body_val);
-                        Instruction::MakeClosure(p.to_string(), body)
+                        code.push(Instruction::MakeClosure(p.to_string(), body));
                     } else {
                         panic!("Expected Int for MakeClosure parameter");
                     }
@@ -178,36 +178,67 @@ fn parse_single_instruction(val: &Value) -> Instruction {
             }
             Value::Right(r2) => match &**r2 {
                 // 3. Call: Right(Right(Left(Unit)))
-                Value::Left(_) => Instruction::Call,
+                Value::Left(_) => code.push(Instruction::Call),
                 
                 Value::Right(r3) => match &**r3 {
                     // 4. Return: Right(Right(Right(Left(Unit))))
-                    Value::Left(_) => Instruction::Return,
+                    Value::Left(_) => code.push(Instruction::Return),
                     
                     Value::Right(r4) => match &**r4 {
                         // 5. MakePair: Right(Right(Right(Right(Left(Unit)))))
-                        Value::Left(_) => Instruction::MakePair,
+                        Value::Left(_) => code.push(Instruction::MakePair),
                         
-                        // 6. Unpack: Right(Right(Right(Right(Right(Pair(Int, Int))))))
-                        Value::Right(r5) => {
-                            if let Value::Pair(v1, v2) = &**r5 {
-                                if let (Value::Int(id1), Value::Int(id2)) = (&**v1, &**v2) {
-                                    Instruction::UnpackAndBind(id1.to_string(), id2.to_string())
+                        Value::Right(r5) => match &**r5 {
+                            // 6. Unpack: Right(Right(Right(Right(Right(Left(Pair(Int, Int)))))))
+                            Value::Left(l6) => {
+                                if let Value::Pair(v1, v2) = &**l6 {
+                                    if let (Value::Int(id1), Value::Int(id2)) = (&**v1, &**v2) {
+                                        code.push(Instruction::UnpackAndBind(id1.to_string(), id2.to_string()));
+                                    } else {
+                                        panic!("Expected Ints in Unpack instruction");
+                                    }
                                 } else {
-                                    panic!("Expected Ints in Unpack instruction");
+                                    panic!("Expected Pair in Unpack instruction");
                                 }
-                            } else {
-                                panic!("Expected Pair in Unpack instruction");
                             }
+                            
+                            Value::Right(r6) => match &**r6 {
+                                // 7. MakeLeft: Right(Right(Right(Right(Right(Right(Left(Unit)))))))
+                                Value::Left(_) => code.push(Instruction::MakeLeft),
+                                
+                                Value::Right(r7) => match &**r7 {
+                                    // 8. MakeRight: Right(Right(Right(Right(Right(Right(Right(Left(Unit))))))))
+                                    Value::Left(_) => code.push(Instruction::MakeRight),
+                                    
+                                    // 9. BranchMatch: Right(Right(Right(Right(Right(Right(Right(Right(Pair(IL, IL)))))))))
+                                    Value::Right(r8) => {
+                                        if let Value::Pair(il1, il2) = &**r8 {
+                                            let mut code_l = parse_autarky_bytecode(il1);
+                                            let code_r = parse_autarky_bytecode(il2);
+                                            
+                                            // Flatten the tree into linear offset jumps!
+                                            code_l.push(Instruction::Jump(code_r.len() + 1));
+                                            code.push(Instruction::BranchMatch(code_l.len() + 1));
+                                            code.extend(code_l);
+                                            code.extend(code_r);
+                                        } else {
+                                            panic!("Expected Pair(IL, IL) in BranchMatch instruction");
+                                        }
+                                    }
+                                    _ => panic!("Expected Left or Right encoding instruction (level 8)"),
+                                }
+                                _ => panic!("Expected Left or Right encoding instruction (level 7)"),
+                            }
+                            _ => panic!("Expected Left or Right encoding instruction (level 6)"),
                         }
-                        _ => panic!("Expected Left or Right encoding instruction (level 4)"),
-                    },
-                    _ => panic!("Expected Left or Right encoding instruction (level 3)"),
-                },
-                _ => panic!("Expected Left or Right encoding instruction (level 2)"),
-            },
-            _ => panic!("Expected Left or Right encoding instruction (level 1)"),
-        },
+                        _ => panic!("Expected Left or Right encoding instruction (level 5)"),
+                    }
+                    _ => panic!("Expected Left or Right encoding instruction (level 4)"),
+                }
+                _ => panic!("Expected Left or Right encoding instruction (level 3)"),
+            }
+            _ => panic!("Expected Left or Right encoding instruction (level 2)"),
+        }
         _ => panic!("Unknown instruction encoding: {:?}", val),
     }
 }
