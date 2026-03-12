@@ -1,193 +1,214 @@
-use crate::ast::{Term, Type, Permission};
+// src/parser.rs
+
+use crate::ast::{Expr, Type};
 use std::iter::Peekable;
-use std::str::Chars;
+use std::vec::IntoIter;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
-    Ident(String), Number(u32), StringLit(String),
-    Lambda, Colon, Dot, LParen, RParen, LBracket, RBracket, Bang, Plus, Minus, EqEq, Lin, Pi, IntKw,
-    UnitKw, UnitValKw, BoolKw, TrueKw, FalseKw, StringKw,
-    PairKw, MkPairKw, UnpackKw, EitherKw, LeftKw, RightKw, MatchKw, WithKw, FatArrow, Bar,      
-    IfKw, ThenKw, ElseKw, FixKw, FreeKw, TypeUniv(u32), 
-    SplitKw, IntoKw, InKw, MergeKw, AndKw, Comma, ArrayKw, AllocKw, ReadKw, WriteKw, ReadFileKw,
-    RecKw, FoldKw, UnfoldKw,
-    Eof,
+    Ident(String), Int(i64),
+    Lambda, Colon, Dot, Plus, Minus, LParen, RParen,
+    Arrow, EqualGreater, Pipe, Comma,
+    IntKw, PairKw, EitherKw, ArrayKw,
+    MkPair, Unpack, IntoKw, InKw,
+    Left, Right, Match, With,
+    ArrayAlloc, ArraySwap,
 }
 
-pub struct Lexer<'a> { chars: Peekable<Chars<'a>> }
+pub struct Parser<'a> {
+    input: &'a str,
+}
 
-impl<'a> Lexer<'a> {
-    pub fn new(input: &'a str) -> Self { Self { chars: input.chars().peekable() } }
-    fn consume_whitespace(&mut self) { while let Some(&c) = self.chars.peek() { if c.is_whitespace() { self.chars.next(); } else { break; } } }
-    pub fn next_token(&mut self) -> Token {
-        self.consume_whitespace();
-        match self.chars.next() {
-            Some('\\') => Token::Lambda, Some(':') => Token::Colon, Some('.') => Token::Dot,
-            Some('(') => Token::LParen, Some(')') => Token::RParen, Some('[') => Token::LBracket, Some(']') => Token::RBracket,
-            Some('!') => Token::Bang, Some(',') => Token::Comma, Some('+') => Token::Plus, Some('-') => Token::Minus, Some('|') => Token::Bar, 
-            Some('"') => {
-                let mut s = String::new();
-                while let Some(&c) = self.chars.peek() { if c == '"' { self.chars.next(); break; } else { s.push(self.chars.next().unwrap()); } }
-                Token::StringLit(s)
-            }
-            Some('=') => { 
-                if let Some(&'=') = self.chars.peek() { self.chars.next(); Token::EqEq } else if let Some(&'>') = self.chars.peek() { self.chars.next(); Token::FatArrow } else { panic!("Lexer Error"); }
-            }
-            Some(c) if c.is_alphabetic() || c == '_' => {
-                let mut ident = String::from(c);
-                while let Some(&next_c) = self.chars.peek() { if next_c.is_alphanumeric() || next_c == '_' { ident.push(self.chars.next().unwrap()); } else { break; } }
-                match ident.as_str() {
-                    "Lin" => Token::Lin, "Pi" => Token::Pi, "Int" => Token::IntKw, "String" => Token::StringKw, 
-                    "Unit" => Token::UnitKw, "unit" => Token::UnitValKw, 
-                    "Bool" => Token::BoolKw, "True" => Token::TrueKw, "False" => Token::FalseKw,
-                    "Pair" => Token::PairKw, "mkpair" => Token::MkPairKw, "unpack" => Token::UnpackKw, 
-                    "Either" => Token::EitherKw, "Left" => Token::LeftKw, "Right" => Token::RightKw, 
-                    "match" => Token::MatchKw, "with" => Token::WithKw, 
-                    "Array" => Token::ArrayKw, "alloc" => Token::AllocKw, "read" => Token::ReadKw, "write" => Token::WriteKw, "read_file" => Token::ReadFileKw,
-                    "if" => Token::IfKw, "then" => Token::ThenKw, "else" => Token::ElseKw,     
-                    "fix" => Token::FixKw, "free" => Token::FreeKw, 
-                    "split" => Token::SplitKw, "into" => Token::IntoKw, "in" => Token::InKw, "merge" => Token::MergeKw, "and" => Token::AndKw,
-                    "Rec" => Token::RecKw, "fold" => Token::FoldKw, "unfold" => Token::UnfoldKw,
-                    s if s.starts_with("Type_") => Token::TypeUniv(s[5..].parse().unwrap()),
-                    _ => Token::Ident(ident),
+impl<'a> Parser<'a> {
+    pub fn new(input: &'a str) -> Self {
+        Parser { input }
+    }
+
+    fn lex(&self) -> Vec<Token> {
+        let mut tokens = Vec::new();
+        let mut chars = self.input.chars().peekable();
+
+        while let Some(&c) = chars.peek() {
+            match c {
+                ' ' | '\n' | '\t' | '\r' => { chars.next(); }
+                '\\' => { tokens.push(Token::Lambda); chars.next(); }
+                ':' => { tokens.push(Token::Colon); chars.next(); }
+                '.' => { tokens.push(Token::Dot); chars.next(); }
+                '+' => { tokens.push(Token::Plus); chars.next(); }
+                '-' => { 
+                    chars.next();
+                    if let Some(&'>') = chars.peek() {
+                        tokens.push(Token::Arrow); chars.next();
+                    } else {
+                        tokens.push(Token::Minus);
+                    }
                 }
+                '(' => { tokens.push(Token::LParen); chars.next(); }
+                ')' => { tokens.push(Token::RParen); chars.next(); }
+                '=' => {
+                    chars.next();
+                    if let Some(&'>') = chars.peek() {
+                        tokens.push(Token::EqualGreater); chars.next();
+                    }
+                }
+                '|' => { tokens.push(Token::Pipe); chars.next(); }
+                ',' => { tokens.push(Token::Comma); chars.next(); }
+                _ if c.is_ascii_digit() => {
+                    let mut num = String::new();
+                    while let Some(&d) = chars.peek() {
+                        if d.is_ascii_digit() { num.push(chars.next().unwrap()); } else { break; }
+                    }
+                    tokens.push(Token::Int(num.parse().unwrap()));
+                }
+                _ if c.is_alphabetic() || c == '_' => {
+                    let mut ident = String::new();
+                    while let Some(&ch) = chars.peek() {
+                        if ch.is_alphanumeric() || ch == '_' { ident.push(chars.next().unwrap()); } else { break; }
+                    }
+                    match ident.as_str() {
+                        "Int" => tokens.push(Token::IntKw),
+                        "Pair" => tokens.push(Token::PairKw),
+                        "Either" => tokens.push(Token::EitherKw),
+                        "Array" => tokens.push(Token::ArrayKw),
+                        "mkpair" => tokens.push(Token::MkPair),
+                        "unpack" => tokens.push(Token::Unpack),
+                        "into" => tokens.push(Token::IntoKw),
+                        "in" => tokens.push(Token::InKw),
+                        "Left" => tokens.push(Token::Left),
+                        "Right" => tokens.push(Token::Right),
+                        "match" => tokens.push(Token::Match),
+                        "with" => tokens.push(Token::With),
+                        "array_alloc" => tokens.push(Token::ArrayAlloc),
+                        "array_swap" => tokens.push(Token::ArraySwap),
+                        _ => tokens.push(Token::Ident(ident)),
+                    }
+                }
+                _ => { chars.next(); } // Skip unknown
             }
-            Some(c) if c.is_ascii_digit() => {
-                let mut num_str = String::from(c);
-                while let Some(&next_c) = self.chars.peek() { if next_c.is_ascii_digit() { num_str.push(self.chars.next().unwrap()); } else { break; } }
-                Token::Number(num_str.parse().unwrap())
+        }
+        tokens
+    }
+
+    pub fn parse(&mut self) -> Result<Expr, String> {
+        let tokens = self.lex();
+        if tokens.is_empty() { return Err("Empty file".to_string()); }
+        let mut iter = tokens.into_iter().peekable();
+        self.parse_expr(&mut iter)
+    }
+
+    fn parse_type(&self, iter: &mut Peekable<IntoIter<Token>>) -> Result<Type, String> {
+        match iter.next() {
+            Some(Token::IntKw) => Ok(Type::Int),
+            Some(Token::PairKw) => Ok(Type::Pair(Box::new(self.parse_type(iter)?), Box::new(self.parse_type(iter)?))),
+            Some(Token::EitherKw) => Ok(Type::Either(Box::new(self.parse_type(iter)?), Box::new(self.parse_type(iter)?))),
+            Some(Token::ArrayKw) => Ok(Type::Array(Box::new(self.parse_type(iter)?))),
+            Some(Token::LParen) => {
+                let t1 = self.parse_type(iter)?;
+                if let Some(Token::Arrow) = iter.next() {
+                    let t2 = self.parse_type(iter)?;
+                    if let Some(Token::RParen) = iter.next() {
+                        return Ok(Type::Func(Box::new(t1), Box::new(t2)));
+                    }
+                }
+                Err("Expected function type format: (Type -> Type)".to_string())
             }
-            None => Token::Eof,
-            Some(c) => panic!("Lexer Error: Unexpected character '{}'", c),
+            _ => Err("Invalid Type".to_string())
         }
     }
-}
 
-pub struct Parser { tokens: Vec<Token>, pos: usize }
-
-impl Parser {
-    pub fn new(input: &str) -> Self {
-        let mut lexer = Lexer::new(input); let mut tokens = Vec::new();
-        loop { let tok = lexer.next_token(); tokens.push(tok.clone()); if tok == Token::Eof { break; } }
-        Self { tokens, pos: 0 }
-    }
-    fn peek(&self) -> &Token { &self.tokens[self.pos] }
-    fn advance(&mut self) -> &Token { let tok = &self.tokens[self.pos]; if self.pos < self.tokens.len() - 1 { self.pos += 1; } tok }
-    fn expect(&mut self, expected: Token) -> Result<(), String> {
-        let current = self.advance().clone();
-        if current == expected { Ok(()) } else { Err(format!("Expected {:?}, found {:?}", expected, current)) }
-    }
-
-    pub fn parse_type(&mut self) -> Result<Type, String> {
-        match self.peek().clone() {
-            Token::LParen => { self.advance(); let inner = self.parse_type()?; self.expect(Token::RParen)?; Ok(inner) }
-            Token::TypeUniv(n) => { self.advance(); Ok(Type::Universe(n)) }
-            Token::IntKw => { self.advance(); Ok(Type::Int) }
-            Token::UnitKw => { self.advance(); Ok(Type::Unit) }
-            Token::BoolKw => { self.advance(); Ok(Type::Bool) }
-            Token::StringKw => { self.advance(); Ok(Type::String) } 
-            Token::PairKw => { self.advance(); Ok(Type::Pair(Box::new(self.parse_type()?), Box::new(self.parse_type()?))) }
-            Token::EitherKw => { self.advance(); Ok(Type::Either(Box::new(self.parse_type()?), Box::new(self.parse_type()?))) }
-            Token::ArrayKw => { self.advance(); Ok(Type::Array(Box::new(self.parse_type()?))) }
-            Token::Bang => { self.advance(); Ok(Type::Persistent(Box::new(self.parse_type()?))) }
-            Token::Lin => { self.advance(); Ok(Type::Linear(Permission::Full, Box::new(self.parse_type()?))) }
-            Token::RecKw => {
-                self.advance();
-                if let Token::Ident(name) = self.advance().clone() {
-                    self.expect(Token::Dot)?;
-                    Ok(Type::Rec(name, Box::new(self.parse_type()?)))
-                } else { Err("Expected identifier for Rec".to_string()) }
+    fn parse_expr(&self, iter: &mut Peekable<IntoIter<Token>>) -> Result<Expr, String> {
+        match iter.peek() {
+            Some(Token::Lambda) => {
+                iter.next(); // Consume '\'
+                let param = match iter.next() { Some(Token::Ident(name)) => name, _ => return Err("Expected identifier".to_string()) };
+                if iter.next() != Some(Token::Colon) { return Err("Expected ':'".to_string()); }
+                let param_type = self.parse_type(iter)?;
+                if iter.next() != Some(Token::Dot) { return Err("Expected '.'".to_string()); }
+                let body = self.parse_expr(iter)?;
+                Ok(Expr::Lambda { param, param_type, body: Box::new(body) })
             }
-            Token::Ident(name) => { self.advance(); Ok(Type::TVar(name)) }
-            Token::Pi => {
-                self.advance();
-                if let Token::Ident(p) = self.advance().clone() {
-                    self.expect(Token::Colon)?; let t1 = self.parse_type()?; self.expect(Token::Dot)?; let t2 = self.parse_type()?; Ok(Type::Pi(p, Box::new(t1), Box::new(t2)))
-                } else { Err("Expected identifier".to_string()) }
+            Some(Token::Unpack) => {
+                iter.next(); // Consume unpack
+                let pair = self.parse_expr(iter)?;
+                if iter.next() != Some(Token::IntoKw) { return Err("Expected 'into'".to_string()); }
+                let var1 = match iter.next() { Some(Token::Ident(n)) => n, _ => return Err("Expected var1".to_string()) };
+                if iter.next() != Some(Token::Comma) { return Err("Expected ','".to_string()); }
+                let var2 = match iter.next() { Some(Token::Ident(n)) => n, _ => return Err("Expected var2".to_string()) };
+                if iter.next() != Some(Token::InKw) { return Err("Expected 'in'".to_string()); }
+                let body = self.parse_expr(iter)?;
+                Ok(Expr::Unpack { pair: Box::new(pair), var1, var2, body: Box::new(body) })
             }
-            _ => Err(format!("Unexpected type token: {:?}", self.peek())),
+            Some(Token::Match) => {
+                iter.next();
+                let expr = self.parse_expr(iter)?;
+                if iter.next() != Some(Token::With) { return Err("Expected 'with'".to_string()); }
+                if iter.next() != Some(Token::Left) { return Err("Expected 'Left'".to_string()); }
+                let left_var = match iter.next() { Some(Token::Ident(n)) => n, _ => return Err("Expected left var".to_string()) };
+                if iter.next() != Some(Token::EqualGreater) { return Err("Expected '=>'".to_string()); }
+                let left_body = self.parse_expr(iter)?;
+                if iter.next() != Some(Token::Pipe) { return Err("Expected '|'".to_string()); }
+                if iter.next() != Some(Token::Right) { return Err("Expected 'Right'".to_string()); }
+                let right_var = match iter.next() { Some(Token::Ident(n)) => n, _ => return Err("Expected right var".to_string()) };
+                if iter.next() != Some(Token::EqualGreater) { return Err("Expected '=>'".to_string()); }
+                let right_body = self.parse_expr(iter)?;
+                Ok(Expr::Match { expr: Box::new(expr), left_var, left_body: Box::new(left_body), right_var, right_body: Box::new(right_body) })
+            }
+            _ => self.parse_add_sub(iter)
         }
     }
 
-    pub fn parse_term(&mut self) -> Result<Term, String> {
-        match self.peek().clone() {
-            Token::Number(n) => { self.advance(); Ok(Term::IntVal(n)) }
-            Token::StringLit(s) => { self.advance(); Ok(Term::StringVal(s)) } 
-            Token::UnitValKw => { self.advance(); Ok(Term::UnitVal) }
-            Token::TrueKw => { self.advance(); Ok(Term::BoolVal(true)) }
-            Token::FalseKw => { self.advance(); Ok(Term::BoolVal(false)) }
-            Token::Ident(name) => { self.advance(); Ok(Term::Var(name)) }
-            Token::LeftKw => { self.advance(); let t = self.parse_term()?; let ty = self.parse_type()?; Ok(Term::Left(Box::new(t), ty)) }
-            Token::RightKw => { self.advance(); let ty = self.parse_type()?; let t = self.parse_term()?; Ok(Term::Right(ty, Box::new(t))) }
-            Token::AllocKw => { self.advance(); let s = self.parse_term()?; let i = self.parse_term()?; Ok(Term::Alloc(Box::new(s), Box::new(i))) }
-            Token::ReadKw => { self.advance(); let a = self.parse_term()?; let i = self.parse_term()?; Ok(Term::Read(Box::new(a), Box::new(i))) }
-            Token::WriteKw => { self.advance(); let a = self.parse_term()?; let i = self.parse_term()?; let v = self.parse_term()?; Ok(Term::Write(Box::new(a), Box::new(i), Box::new(v))) }
-            Token::ReadFileKw => { self.advance(); Ok(Term::ReadFile(Box::new(self.parse_term()?))) }
-            Token::FoldKw => {
-                self.advance(); self.expect(Token::LBracket)?; let ty = self.parse_type()?; self.expect(Token::RBracket)?;
-                Ok(Term::Fold(ty, Box::new(self.parse_term()?)))
+    fn parse_add_sub(&self, iter: &mut Peekable<IntoIter<Token>>) -> Result<Expr, String> {
+        let mut left = self.parse_app(iter)?;
+        while let Some(tok) = iter.peek() {
+            match tok {
+                Token::Plus => { iter.next(); left = Expr::Add(Box::new(left), Box::new(self.parse_app(iter)?)); }
+                Token::Minus => { iter.next(); left = Expr::Sub(Box::new(left), Box::new(self.parse_app(iter)?)); }
+                _ => break,
             }
-            Token::UnfoldKw => { self.advance(); Ok(Term::Unfold(Box::new(self.parse_term()?))) }
-            Token::MatchKw => { 
-                self.advance(); let tgt = self.parse_term()?; self.expect(Token::WithKw)?; self.expect(Token::LeftKw)?;
-                let id_l = if let Token::Ident(n) = self.advance().clone() { n } else { return Err("Expected id".to_string()) };
-                self.expect(Token::FatArrow)?; let b_l = self.parse_term()?; self.expect(Token::Bar)?; self.expect(Token::RightKw)?;
-                let id_r = if let Token::Ident(n) = self.advance().clone() { n } else { return Err("Expected id".to_string()) };
-                self.expect(Token::FatArrow)?; let b_r = self.parse_term()?; Ok(Term::Match(Box::new(tgt), id_l, Box::new(b_l), id_r, Box::new(b_r)))
+        }
+        Ok(left)
+    }
+
+    fn parse_app(&self, iter: &mut Peekable<IntoIter<Token>>) -> Result<Expr, String> {
+        let mut left = self.parse_primary(iter)?;
+        // If the next token is a primary starter, it's an application
+        while let Some(tok) = iter.peek() {
+            match tok {
+                Token::Int(_) | Token::Ident(_) | Token::LParen | Token::MkPair | Token::Left | Token::Right | Token::ArrayAlloc | Token::ArraySwap => {
+                    let right = self.parse_primary(iter)?;
+                    left = Expr::App { func: Box::new(left), arg: Box::new(right) };
+                }
+                _ => break,
             }
-            Token::MkPairKw => { self.advance(); Ok(Term::MkPair(Box::new(self.parse_term()?), Box::new(self.parse_term()?))) }
-            Token::UnpackKw => { 
-                self.advance(); let tgt = self.parse_term()?; self.expect(Token::IntoKw)?;
-                if let Token::Ident(a1) = self.advance().clone() {
-                    self.expect(Token::Comma)?;
-                    if let Token::Ident(a2) = self.advance().clone() {
-                        self.expect(Token::InKw)?; Ok(Term::Unpack(Box::new(tgt), a1, a2, Box::new(self.parse_term()?)))
-                    } else { Err("Expected alias".to_string()) }
-                } else { Err("Expected alias".to_string()) }
+        }
+        Ok(left)
+    }
+
+    fn parse_primary(&self, iter: &mut Peekable<IntoIter<Token>>) -> Result<Expr, String> {
+        match iter.next() {
+            Some(Token::Int(n)) => Ok(Expr::IntLiteral(n)),
+            Some(Token::Ident(name)) => Ok(Expr::Variable(name)),
+            Some(Token::LParen) => {
+                let expr = self.parse_expr(iter)?;
+                if iter.next() != Some(Token::RParen) { return Err("Expected ')'".to_string()); }
+                Ok(expr)
             }
-            Token::IfKw => { 
-                self.advance(); let c = self.parse_term()?; self.expect(Token::ThenKw)?; let t = self.parse_term()?; self.expect(Token::ElseKw)?; let f = self.parse_term()?;
-                Ok(Term::If(Box::new(c), Box::new(t), Box::new(f)))
+            Some(Token::MkPair) => Ok(Expr::MkPair(Box::new(self.parse_primary(iter)?), Box::new(self.parse_primary(iter)?))),
+            Some(Token::Left) => {
+                let ty = self.parse_type(iter)?;
+                Ok(Expr::Left(Box::new(self.parse_primary(iter)?), ty))
             }
-            Token::FixKw => { self.advance(); Ok(Term::Fix(Box::new(self.parse_term()?))) }
-            Token::FreeKw => { self.advance(); Ok(Term::Free(Box::new(self.parse_term()?))) }
-            Token::SplitKw => {
-                self.advance(); 
-                if let Token::Ident(tgt) = self.advance().clone() {
-                    self.expect(Token::IntoKw)?;
-                    if let Token::Ident(a1) = self.advance().clone() {
-                        self.expect(Token::Comma)?;
-                        if let Token::Ident(a2) = self.advance().clone() { self.expect(Token::InKw)?; Ok(Term::Split(tgt, a1, a2, Box::new(self.parse_term()?))) } else { Err("Err".to_string()) }
-                    } else { Err("Err".to_string()) }
-                } else { Err("Err".to_string()) }
+            Some(Token::Right) => {
+                let ty = self.parse_type(iter)?;
+                Ok(Expr::Right(Box::new(self.parse_primary(iter)?), ty))
             }
-            Token::MergeKw => {
-                self.advance(); 
-                if let Token::Ident(a1) = self.advance().clone() {
-                    self.expect(Token::AndKw)?;
-                    if let Token::Ident(a2) = self.advance().clone() {
-                        self.expect(Token::IntoKw)?;
-                        if let Token::Ident(tgt) = self.advance().clone() { self.expect(Token::InKw)?; Ok(Term::Merge(a1, a2, tgt, Box::new(self.parse_term()?))) } else { Err("Err".to_string()) }
-                    } else { Err("Err".to_string()) }
-                } else { Err("Err".to_string()) }
-            }
-            Token::Lambda => {
-                self.advance(); 
-                if let Token::Ident(p) = self.advance().clone() { self.expect(Token::Colon)?; let p_ty = self.parse_type()?; self.expect(Token::Dot)?; Ok(Term::Abs(p, p_ty, Box::new(self.parse_term()?))) } else { Err("Err".to_string()) }
-            }
-            Token::LParen => {
-                self.advance(); let t1 = self.parse_term()?;
-                if self.peek() == &Token::Plus { self.advance(); let t2 = self.parse_term()?; self.expect(Token::RParen)?; Ok(Term::Add(Box::new(t1), Box::new(t2))) }
-                else if self.peek() == &Token::Minus { self.advance(); let t2 = self.parse_term()?; self.expect(Token::RParen)?; Ok(Term::Sub(Box::new(t1), Box::new(t2))) }
-                else if self.peek() == &Token::EqEq { self.advance(); let t2 = self.parse_term()?; self.expect(Token::RParen)?; Ok(Term::Eq(Box::new(t1), Box::new(t2))) }
-                else if self.peek() == &Token::RParen { self.advance(); Ok(t1) }
-                else { let t2 = self.parse_term()?; self.expect(Token::RParen)?; Ok(Term::App(Box::new(t1), Box::new(t2))) }
-            }
-            Token::EitherKw | Token::PairKw => {
-                // If Either or Pair appear in a term position unexpectedly
-                Err(format!("Token {:?} found in term position. Did you mean to use it in a type?", self.peek()))
-            }
-            _ => Err(format!("Unexpected term token: {:?}", self.peek())),
+            Some(Token::ArrayAlloc) => Ok(Expr::ArrayAlloc { size: Box::new(self.parse_primary(iter)?), init_val: Box::new(self.parse_primary(iter)?) }),
+            Some(Token::ArraySwap) => Ok(Expr::ArraySwap { 
+                array: Box::new(self.parse_primary(iter)?), 
+                index: Box::new(self.parse_primary(iter)?), 
+                new_val: Box::new(self.parse_primary(iter)?) 
+            }),
+            _ => Err("Unexpected token in primary expression".to_string()),
         }
     }
 }

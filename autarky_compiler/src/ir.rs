@@ -1,36 +1,61 @@
-use crate::ast::Term;
+// src/ir.rs
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum IRTerm {
-    Var(String), IntVal(u32), UnitVal, BoolVal(bool), StringVal(String),
-    Left(Box<IRTerm>), Right(Box<IRTerm>), Match(Box<IRTerm>, String, Box<IRTerm>, String, Box<IRTerm>),
-    Alloc(Box<IRTerm>, Box<IRTerm>), Read(Box<IRTerm>, Box<IRTerm>), Write(Box<IRTerm>, Box<IRTerm>, Box<IRTerm>), ReadFile(Box<IRTerm>),
-    MkPair(Box<IRTerm>, Box<IRTerm>), Unpack(Box<IRTerm>, String, String, Box<IRTerm>),
-    If(Box<IRTerm>, Box<IRTerm>, Box<IRTerm>), Add(Box<IRTerm>, Box<IRTerm>), Sub(Box<IRTerm>, Box<IRTerm>), Eq(Box<IRTerm>, Box<IRTerm>),
-    Fix(Box<IRTerm>), Abs(String, Box<IRTerm>), App(Box<IRTerm>, Box<IRTerm>), Free(Box<IRTerm>),
-    #[allow(dead_code)] Erased,
+use crate::ast::Expr;
+
+/// The untyped Intermediate Representation (IR).
+/// All memory safety has been proven, so we can drop the type metadata to run at maximum speed.
+#[derive(Debug, Clone)]
+pub enum IrNode {
+    Int(i64),
+    Var(String),
+    Lam(String, Box<IrNode>),
+    App(Box<IrNode>, Box<IrNode>),
+    Add(Box<IrNode>, Box<IrNode>),
+    Sub(Box<IrNode>, Box<IrNode>),
+    MkPair(Box<IrNode>, Box<IrNode>),
+    Unpack(String, String, Box<IrNode>, Box<IrNode>),
+    Left(Box<IrNode>),
+    Right(Box<IrNode>),
+    Match(Box<IrNode>, String, Box<IrNode>, String, Box<IrNode>),
+    ArrayAlloc(Box<IrNode>, Box<IrNode>),
+    ArraySwap(Box<IrNode>, Box<IrNode>, Box<IrNode>),
 }
 
-pub fn generate_ir(ast: &Term) -> IRTerm {
-    match ast {
-        Term::IntVal(n) => IRTerm::IntVal(*n), Term::UnitVal => IRTerm::UnitVal, Term::BoolVal(b) => IRTerm::BoolVal(*b), Term::StringVal(s) => IRTerm::StringVal(s.clone()),
-        Term::Left(t, _) => IRTerm::Left(Box::new(generate_ir(t))), Term::Right(_, t) => IRTerm::Right(Box::new(generate_ir(t))),
-        Term::Match(tgt, id_l, b_l, id_r, b_r) => IRTerm::Match(Box::new(generate_ir(tgt)), id_l.clone(), Box::new(generate_ir(b_l)), id_r.clone(), Box::new(generate_ir(b_r))),
-        Term::Alloc(s, i) => IRTerm::Alloc(Box::new(generate_ir(s)), Box::new(generate_ir(i))),
-        Term::Read(a, i) => IRTerm::Read(Box::new(generate_ir(a)), Box::new(generate_ir(i))),
-        Term::Write(a, i, v) => IRTerm::Write(Box::new(generate_ir(a)), Box::new(generate_ir(i)), Box::new(generate_ir(v))),
-        Term::ReadFile(p) => IRTerm::ReadFile(Box::new(generate_ir(p))),
-        Term::MkPair(t1, t2) => IRTerm::MkPair(Box::new(generate_ir(t1)), Box::new(generate_ir(t2))),
-        Term::Unpack(tgt, a1, a2, b) => IRTerm::Unpack(Box::new(generate_ir(tgt)), a1.clone(), a2.clone(), Box::new(generate_ir(b))),
-        Term::If(c, t, f) => IRTerm::If(Box::new(generate_ir(c)), Box::new(generate_ir(t)), Box::new(generate_ir(f))),
-        Term::Add(t1, t2) => IRTerm::Add(Box::new(generate_ir(t1)), Box::new(generate_ir(t2))), Term::Sub(t1, t2) => IRTerm::Sub(Box::new(generate_ir(t1)), Box::new(generate_ir(t2))), Term::Eq(t1, t2) => IRTerm::Eq(Box::new(generate_ir(t1)), Box::new(generate_ir(t2))),
-        Term::Fix(i) => IRTerm::Fix(Box::new(generate_ir(i))), Term::Var(name) => IRTerm::Var(name.clone()), Term::Free(tgt) => IRTerm::Free(Box::new(generate_ir(tgt))),
-        Term::Abs(p, _, b) => IRTerm::Abs(p.clone(), Box::new(generate_ir(b))), Term::App(t1, t2) => IRTerm::App(Box::new(generate_ir(t1)), Box::new(generate_ir(t2))),
-        Term::Split(tgt, a1, a2, b) => IRTerm::App(Box::new(IRTerm::App(Box::new(IRTerm::Abs(a1.clone(), Box::new(IRTerm::Abs(a2.clone(), Box::new(generate_ir(b)))))), Box::new(IRTerm::Var(tgt.clone())))), Box::new(IRTerm::Var(tgt.clone()))),
-        Term::Merge(a1, _, tgt, b) => IRTerm::App(Box::new(IRTerm::Abs(tgt.clone(), Box::new(generate_ir(b)))), Box::new(IRTerm::Var(a1.clone()))),
-        
-        // NEW: Fold and Unfold are physically erased at runtime. Zero cost abstraction!
-        Term::Fold(_, t) => generate_ir(t), 
-        Term::Unfold(t) => generate_ir(t),
+/// Recursively traverses the safe AST and strips all type information.
+pub fn erase_proofs(expr: &Expr) -> IrNode {
+    match expr {
+        Expr::IntLiteral(n) => IrNode::Int(*n),
+        Expr::Variable(name) => IrNode::Var(name.clone()),
+        Expr::Lambda { param, body, .. } => {
+            IrNode::Lam(param.clone(), Box::new(erase_proofs(body)))
+        }
+        Expr::App { func, arg } => {
+            IrNode::App(Box::new(erase_proofs(func)), Box::new(erase_proofs(arg)))
+        }
+        Expr::Add(l, r) => IrNode::Add(Box::new(erase_proofs(l)), Box::new(erase_proofs(r))),
+        Expr::Sub(l, r) => IrNode::Sub(Box::new(erase_proofs(l)), Box::new(erase_proofs(r))),
+        Expr::MkPair(l, r) => IrNode::MkPair(Box::new(erase_proofs(l)), Box::new(erase_proofs(r))),
+        Expr::Unpack { pair, var1, var2, body } => {
+            IrNode::Unpack(var1.clone(), var2.clone(), Box::new(erase_proofs(pair)), Box::new(erase_proofs(body)))
+        }
+        Expr::Left(e, _) => IrNode::Left(Box::new(erase_proofs(e))),
+        Expr::Right(e, _) => IrNode::Right(Box::new(erase_proofs(e))),
+        Expr::Match { expr, left_var, left_body, right_var, right_body } => {
+            IrNode::Match(
+                Box::new(erase_proofs(expr)), 
+                left_var.clone(), Box::new(erase_proofs(left_body)), 
+                right_var.clone(), Box::new(erase_proofs(right_body))
+            )
+        }
+        Expr::ArrayAlloc { size, init_val } => {
+            IrNode::ArrayAlloc(Box::new(erase_proofs(size)), Box::new(erase_proofs(init_val)))
+        }
+        Expr::ArraySwap { array, index, new_val } => {
+            IrNode::ArraySwap(
+                Box::new(erase_proofs(array)), 
+                Box::new(erase_proofs(index)), 
+                Box::new(erase_proofs(new_val))
+            )
+        }
     }
 }

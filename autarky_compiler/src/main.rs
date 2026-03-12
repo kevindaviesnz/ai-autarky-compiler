@@ -1,122 +1,82 @@
-use clap::Parser as CliParser;
-use std::fs;
+// src/main.rs
 
 mod ast;
-mod codegen;
 mod ir;
 mod parser;
 mod typecheck;
 mod vm;
 
-use ast::{Permission, Resource, Type};
-use typecheck::Context;
-use vm::{Value, VM};
-
-/// Project Ouroboros: Autarky Compiler Stage 1
-#[derive(CliParser, Debug)]
-#[command(author, version, about, long_about = None)]
-struct Cli {
-    #[arg(short, long)]
-    file: String,
-
-    #[arg(short, long, default_value_t = false)]
-    prove: bool,
-}
+use std::collections::HashMap;
+use std::env;
+use std::fs;
 
 fn main() {
-    let cli = Cli::parse();
-
-    println!("========================================");
-    println!("🐍 Autarky Compiler Bootstrapper v1.1.0");
-    println!("========================================");
-
-    let source_code = match fs::read_to_string(&cli.file) {
-        Ok(code) => code,
-        Err(e) => { 
-            eprintln!("❌ Failed to read file '{}': {}", cli.file, e); 
-            std::process::exit(1); 
-        }
-    };
-
-    let mut parser = parser::Parser::new(&source_code);
-    let ast = match parser.parse_term() {
-        Ok(term) => term,
-        Err(e) => { 
-            eprintln!("❌ Parsing Failed!\n{}", e); 
-            std::process::exit(1); 
-        }
-    };
-
-    let mut ctx = Context::new();
-    ctx.insert(
-        "memory_ptr".to_string(), 
-        Resource::Linear(Type::Linear(Permission::Full, Box::new(Type::Universe(1))))
-    );
-
-    if let Err(e) = ctx.check(&ast) {
-        eprintln!("❌ Verification Failed!"); 
-        eprintln!("{}", e); 
-        std::process::exit(1);
+    let args: Vec<String> = env::args().collect();
+    if args.len() < 3 || args[1] != "--file" {
+        println!("Usage: cargo run --release -- --file <filename.aut>");
+        return;
     }
-    println!("✅ Type Check Passed (Memory Safety Guaranteed)");
 
-    let optimized_ir = ir::generate_ir(&ast);
-    println!("✅ Proof Erasure Complete");
-    
-    let bytecode = codegen::generate_bytecode(&optimized_ir);
-    println!("✅ Bytecode Generated");
-    
-    println!("----------------------------------------");
-    println!("🚀 Executing inside Autarky VM...");
-    
-    let mut runtime = VM::new();
-    runtime.insert_global("memory_ptr".to_string(), Value::MemoryAddress(0xDEADBEEF));
+    let filename = &args[2];
+    let contents = fs::read_to_string(filename).unwrap_or_else(|_| {
+        println!("Error: Could not read file {}", filename);
+        String::new()
+    });
 
-    match runtime.execute(&bytecode) {
-        Ok(Some(result)) => { 
-            println!("✅ Execution Finished Successfully!"); 
-            println!("-> Raw Return Value: {:?}", result); 
+    if contents.is_empty() {
+        return;
+    }
 
-            if let Value::Pair(_proof, bytecode_val) = &result {
-                println!("----------------------------------------");
-                println!("🧩 Parsing Self-Hosted Compiler Output...");
-                
-                let parsed_instructions = codegen::parse_autarky_bytecode(bytecode_val);
-                
-                println!("✅ Native Rust Bytecode Generated from Autarky:");
-                println!("{:#?}", parsed_instructions);
+    println!("--- Compiling {} ---", filename);
 
-                println!("----------------------------------------");
-                println!("🧪 Testing Self-Compiled Code...");
-                
-                // Construct a test: Push(10) + Push(11) + MakePair + [Generated Closure] + Call
-                let mut test_program = vec![
-                    codegen::Instruction::PushInt(10),
-                    codegen::Instruction::PushInt(11),
-                    codegen::Instruction::MakePair,
-                ];
-                test_program.extend(parsed_instructions);
-                test_program.push(codegen::Instruction::Call);
+    // 1. Front-End: Parse the raw text into the AST
+    let mut parser = parser::Parser::new(&contents);
+    let ast = match parser.parse() {
+        Ok(expr) => expr,
+        Err(e) => {
+            println!("Parse Error: {}", e);
+            return;
+        }
+    };
 
-                let mut test_vm = VM::new();
-                match test_vm.execute(&test_program) {
-                    Ok(Some(final_val)) => {
-                        println!("✨ SELF-EXECUTION SUCCESS!");
-                        println!("-> Sent: Pair(10, 11)");
-                        println!("-> Received: {:?}", final_val);
-                    }
-                    Ok(None) => println!("❌ Test returned no value."),
-                    Err(e) => println!("💥 Test VM Panic: {}", e),
+    println!("✅ Parsing Complete!");
+
+    // 2. Middle-End: Run the Scope Janitor to mathematically prove memory safety
+    let checker = typecheck::TypeChecker::new();
+    let empty_env = HashMap::new(); // The universe starts with no variables
+
+    match checker.check(empty_env, &ast) {
+        Ok((final_type, _remaining_env)) => {
+            println!("✅ Type Check Passed! Final Evaluated Type: {:?}", final_type);
+            
+            // 3. Back-End Prep: Erase types to generate pure execution instructions
+            let ir = ir::erase_proofs(&ast);
+            println!("✅ Proof Erasure Complete! IR Generated.");
+            
+            // 4. Execution: Pass the IR to the Virtual Machine
+            println!("🚀 Booting Virtual Machine...");
+            let mut virtual_machine = vm::VirtualMachine::new();
+            
+            // Because our dummy parser currently spits out `\x: Int . x + 10`,
+            // we will simulate applying the argument `42` to it so it actually runs!
+            let application_ir = ir::IrNode::App(
+                Box::new(ir), 
+                Box::new(ir::IrNode::Int(42))
+            );
+
+            let vm_env = HashMap::new();
+            match virtual_machine.evaluate(&vm_env, &application_ir) {
+                Ok(result) => {
+                    println!("=====================================");
+                    println!("🎉 PROGRAM EXECUTED SUCCESSFULLY!");
+                    println!("FINAL RESULT: {:?}", result);
+                    println!("=====================================");
                 }
+                Err(e) => println!("❌ {}", e),
             }
         }
-        Ok(None) => { 
-            println!("✅ Execution Finished (No Return Value)"); 
-        }
-        Err(e) => { 
-            eprintln!("💥 VM Panic!"); 
-            eprintln!("{}", e); 
-            std::process::exit(1); 
+        Err(e) => {
+            println!("❌ {}", e);
         }
     }
 }

@@ -1,150 +1,165 @@
-use crate::codegen::Instruction;
-use std::collections::HashMap;
+// src/vm.rs
 
-#[allow(dead_code)]
+use std::collections::HashMap;
+use crate::ir::IrNode;
+
+/// The runtime values that the Virtual Machine actually computes and passes around.
 #[derive(Debug, Clone)]
-pub enum Value {
-    Closure(String, Vec<Instruction>, HashMap<String, Value>),
-    RecursiveClosure(String, Vec<Instruction>, HashMap<String, Value>),
-    MemoryAddress(usize), ArrayAddress(usize),
-    Int(u32), Unit, Bool(bool), String(String),
-    Pair(Box<Value>, Box<Value>), Left(Box<Value>), Right(Box<Value>),
+pub enum VmValue {
+    Int(i64),
+    Pair(Box<VmValue>, Box<VmValue>),
+    Left(Box<VmValue>),
+    Right(Box<VmValue>),
+    Array(Vec<VmValue>),
+    // A function that remembers the environment it was created in
+    Closure {
+        param: String,
+        body: IrNode,
+        env: HashMap<String, VmValue>,
+    },
 }
 
-pub struct VM { stack: Vec<Value>, env: HashMap<String, Value>, heap: HashMap<usize, Vec<Value>>, next_alloc_ptr: usize }
+pub struct VirtualMachine;
 
-impl VM {
-    pub fn new() -> Self { Self { stack: Vec::new(), env: HashMap::new(), heap: HashMap::new(), next_alloc_ptr: 0x1000 } }
-    pub fn insert_global(&mut self, name: String, val: Value) { self.env.insert(name, val); }
-    pub fn execute(&mut self, instructions: &[Instruction]) -> Result<Option<Value>, String> {
-        let mut pc = 0;
-        while pc < instructions.len() {
-            match &instructions[pc] {
-                Instruction::PushInt(n) => self.stack.push(Value::Int(*n)),
-                Instruction::PushUnit => self.stack.push(Value::Unit),
-                Instruction::PushBool(b) => self.stack.push(Value::Bool(*b)),
-                Instruction::PushString(s) => self.stack.push(Value::String(s.clone())),
-                Instruction::AllocArray => {
-                    let init = self.stack.pop().ok_or("Stack Underflow")?;
-                    let size = self.stack.pop().ok_or("Stack Underflow")?;
-                    if let Value::Int(s) = size {
-                        let id = self.next_alloc_ptr; self.next_alloc_ptr += 0x10;
-                        self.heap.insert(id, vec![init; s as usize]);
-                        self.stack.push(Value::ArrayAddress(id));
-                    }
-                }
-                Instruction::ReadFileOS => {
-                    if let Value::String(path) = self.stack.pop().ok_or("Stack Underflow")? {
-                        let bytes = std::fs::read(&path).map_err(|e| format!("IO Error: {}", e))?;
-                        let id = self.next_alloc_ptr; self.next_alloc_ptr += 0x10;
-                        let mut arr = Vec::new();
-                        for b in bytes { arr.push(Value::Int(b as u32)); }
-                        self.heap.insert(id, arr.clone());
-                        println!("💾 [VM] File System Read: Loaded '{}' ({} bytes) at {:#X}", path, arr.len(), id);
-                        self.stack.push(Value::ArrayAddress(id));
-                    }
-                }
-                Instruction::ReadArray => {
-                    let idx = self.stack.pop().ok_or("Stack Underflow")?;
-                    let arr = self.stack.pop().ok_or("Stack Underflow")?;
-                    if let (Value::ArrayAddress(id), Value::Int(i)) = (arr, idx) {
-                        let vec = self.heap.get(&id).ok_or(format!("Runtime Error: Array at {:#X} not found", id))?;
-                        let val = vec.get(i as usize).ok_or("Index Out of Bounds")?.clone();
-                        self.stack.push(Value::Pair(Box::new(val), Box::new(Value::ArrayAddress(id))));
-                    }
-                }
-                Instruction::WriteArray => {
-                    let val = self.stack.pop().ok_or("Stack Underflow")?;
-                    let idx = self.stack.pop().ok_or("Stack Underflow")?;
-                    let arr = self.stack.pop().ok_or("Stack Underflow")?;
-                    if let (Value::ArrayAddress(id), Value::Int(i)) = (arr, idx) {
-                        let vec = self.heap.get_mut(&id).ok_or("Array Not Found")?;
-                        if (i as usize) < vec.len() { vec[i as usize] = val; }
-                        self.stack.push(Value::ArrayAddress(id));
-                    }
-                }
-                Instruction::MakeLeft => { let val = self.stack.pop().ok_or("Stack Underflow")?; self.stack.push(Value::Left(Box::new(val))); }
-                Instruction::MakeRight => { let val = self.stack.pop().ok_or("Stack Underflow")?; self.stack.push(Value::Right(Box::new(val))); }
-                Instruction::BranchMatch(offset) => {
-                    let popped = self.stack.pop().ok_or("Stack Underflow")?;
-                    match popped {
-                        Value::Left(val) => self.stack.push(*val),
-                        Value::Right(val) => { self.stack.push(*val); pc += offset; continue; },
-                        _ => return Err(format!("Runtime Error: BranchMatch expected Either, got {:?}", popped))
-                    }
-                }
-                Instruction::Bind(name) => { let val = self.stack.pop().ok_or("Stack Underflow")?; self.env.insert(name.clone(), val); }
-                Instruction::MakePair => { 
-                    let r = self.stack.pop().ok_or("Stack Underflow")?; 
-                    let l = self.stack.pop().ok_or("Stack Underflow")?; 
-                    self.stack.push(Value::Pair(Box::new(l), Box::new(r))); 
-                }
-                Instruction::UnpackAndBind(a1, a2) => { 
-                    let popped = self.stack.pop().ok_or("Stack Underflow")?;
-                    if let Value::Pair(l, r) = popped { 
-                        self.env.insert(a1.clone(), *l); 
-                        self.env.insert(a2.clone(), *r); 
-                    } else {
-                        return Err(format!("Runtime Error: UnpackAndBind expected a Pair, but got {:?}", popped));
-                    }
-                }
-                Instruction::JumpIfFalse(offset) => { if let Value::Bool(b) = self.stack.pop().ok_or("Stack Underflow")? { if !b { pc += offset; continue; } } }
-                Instruction::Jump(offset) => { pc += offset; continue; }
-                Instruction::Add => { 
-                    let r = self.stack.pop().ok_or("Stack Underflow")?; let l = self.stack.pop().ok_or("Stack Underflow")?; 
-                    if let (Value::Int(l_v), Value::Int(r_v)) = (l, r) { self.stack.push(Value::Int(l_v + r_v)); } 
-                }
-                Instruction::Sub => { 
-                    let r = self.stack.pop().ok_or("Stack Underflow")?; let l = self.stack.pop().ok_or("Stack Underflow")?; 
-                    if let (Value::Int(l_v), Value::Int(r_v)) = (l, r) { self.stack.push(Value::Int(if r_v > l_v { 0 } else { l_v - r_v })); } 
-                }
-                Instruction::Eq => { 
-                    let r = self.stack.pop().ok_or("Stack Underflow")?; let l = self.stack.pop().ok_or("Stack Underflow")?; 
-                    if let (Value::Int(l_v), Value::Int(r_v)) = (l, r) { self.stack.push(Value::Bool(l_v == r_v)); } 
-                }
-                Instruction::Fix => {
-                    if let Value::Closure(p, b, e) = self.stack.pop().ok_or("Stack Underflow")? {
-                        let rec_ref = Value::RecursiveClosure(p.clone(), b.clone(), e.clone());
-                        let old_env = std::mem::replace(&mut self.env, e); self.env.insert(p, rec_ref);
-                        if let Some(ret_val) = self.execute(&b)? { self.stack.push(ret_val); } self.env = old_env;
-                    }
-                }
-                Instruction::PushVar(n) => { if let Some(v) = self.env.get(n) { self.stack.push(v.clone()); } else { return Err(format!("Unbound '{}'", n)); } }
-                Instruction::MakeClosure(p, b) => { self.stack.push(Value::Closure(p.clone(), b.clone(), self.env.clone())); }
-                Instruction::Call => {
-                    let func = self.stack.pop().ok_or("Stack Underflow")?; 
-                    let arg = self.stack.pop().ok_or("Stack Underflow")?;
-                    match func {
-                        Value::Closure(p, b, c_e) => {
-                            let old_env = std::mem::replace(&mut self.env, c_e); self.env.insert(p, arg);
-                            let res = self.execute(&b); self.env = old_env; if let Some(ret_val) = res? { self.stack.push(ret_val); }
-                        }
-                        Value::RecursiveClosure(p, b, c_e) => {
-                            let old_env = std::mem::replace(&mut self.env, c_e);
-                            let rec_ref = Value::RecursiveClosure(p.clone(), b.clone(), self.env.clone());
-                            self.env.insert(p.clone(), rec_ref);
-                            let unrolled = self.execute(&b)?.ok_or("Empty closure")?;
-                            self.env = old_env;
-                            if let Value::Closure(u_p, u_b, u_e) = unrolled {
-                                let old_env2 = std::mem::replace(&mut self.env, u_e);
-                                self.env.insert(u_p, arg);
-                                let res = self.execute(&u_b); self.env = old_env2; if let Some(ret_val) = res? { self.stack.push(ret_val); }
-                            } else { return Err(format!("Unrolled body did not produce a Closure: {:?}", unrolled)); }
-                        }
-                        _ => return Err(format!("Attempted to Call a non-function value: {:?}", func)),
-                    }
-                }
-                Instruction::Free => {
-                    match self.stack.pop().ok_or("Stack Underflow")? {
-                        Value::MemoryAddress(_) | Value::String(_) | Value::Int(_) | Value::Bool(_) | Value::Unit => { self.stack.push(Value::Unit); }
-                        Value::ArrayAddress(addr) => { self.heap.remove(&addr); self.stack.push(Value::Unit); }
-                        _ => { self.stack.push(Value::Unit); }
-                    }
-                }
-                Instruction::Return => { return Ok(self.stack.pop()); }
+impl VirtualMachine {
+    pub fn new() -> Self {
+        VirtualMachine
+    }
+
+    /// Evaluates an IR Node down to a final VmValue
+    pub fn evaluate(&mut self, env: &HashMap<String, VmValue>, node: &IrNode) -> Result<VmValue, String> {
+        match node {
+            IrNode::Int(n) => Ok(VmValue::Int(*n)),
+            
+            IrNode::Var(name) => {
+                env.get(name)
+                    .cloned()
+                    .ok_or_else(|| format!("VM Error: Variable '{}' not found in environment at runtime!", name))
             }
-            pc += 1;
+
+            IrNode::Lam(param, body) => {
+                Ok(VmValue::Closure {
+                    param: param.clone(),
+                    body: *body.clone(),
+                    env: env.clone(),
+                })
+            }
+
+            IrNode::App(func, arg) => {
+                let func_val = self.evaluate(env, func)?;
+                let arg_val = self.evaluate(env, arg)?;
+
+                match func_val {
+                    VmValue::Closure { param, body, mut env } => {
+                        env.insert(param, arg_val);
+                        self.evaluate(&env, &body)
+                    }
+                    _ => Err("VM Error: Tried to apply arguments to a non-function.".to_string()),
+                }
+            }
+
+            IrNode::Add(l, r) => {
+                let left = self.evaluate(env, l)?;
+                let right = self.evaluate(env, r)?;
+                match (left, right) {
+                    (VmValue::Int(a), VmValue::Int(b)) => Ok(VmValue::Int(a + b)),
+                    _ => Err("VM Error: Math requires Ints.".to_string()),
+                }
+            }
+
+            IrNode::Sub(l, r) => {
+                let left = self.evaluate(env, l)?;
+                let right = self.evaluate(env, r)?;
+                match (left, right) {
+                    (VmValue::Int(a), VmValue::Int(b)) => Ok(VmValue::Int(a - b)),
+                    _ => Err("VM Error: Math requires Ints.".to_string()),
+                }
+            }
+
+            IrNode::MkPair(l, r) => {
+                let left = self.evaluate(env, l)?;
+                let right = self.evaluate(env, r)?;
+                Ok(VmValue::Pair(Box::new(left), Box::new(right)))
+            }
+
+            IrNode::Unpack(v1, v2, pair_node, body) => {
+                let pair_val = self.evaluate(env, pair_node)?;
+                match pair_val {
+                    VmValue::Pair(l, r) => {
+                        let mut new_env = env.clone();
+                        new_env.insert(v1.clone(), *l);
+                        new_env.insert(v2.clone(), *r);
+                        self.evaluate(&new_env, body)
+                    }
+                    _ => Err("VM Error: Cannot unpack a non-pair.".to_string()),
+                }
+            }
+
+            IrNode::Left(val) => {
+                let inner = self.evaluate(env, val)?;
+                Ok(VmValue::Left(Box::new(inner)))
+            }
+
+            IrNode::Right(val) => {
+                let inner = self.evaluate(env, val)?;
+                Ok(VmValue::Right(Box::new(inner)))
+            }
+
+            IrNode::Match(expr, l_var, l_body, r_var, r_body) => {
+                let match_val = self.evaluate(env, expr)?;
+                match match_val {
+                    VmValue::Left(inner) => {
+                        let mut new_env = env.clone();
+                        new_env.insert(l_var.clone(), *inner);
+                        self.evaluate(&new_env, l_body)
+                    }
+                    VmValue::Right(inner) => {
+                        let mut new_env = env.clone();
+                        new_env.insert(r_var.clone(), *inner);
+                        self.evaluate(&new_env, r_body)
+                    }
+                    _ => Err("VM Error: Cannot match on a non-Either value.".to_string()),
+                }
+            }
+
+            IrNode::ArrayAlloc(size_node, init_node) => {
+                let size_val = self.evaluate(env, size_node)?;
+                let init_val = self.evaluate(env, init_node)?;
+
+                match (size_val, init_val) {
+                    (VmValue::Int(size), VmValue::Int(init)) => {
+                        if size < 0 {
+                            return Err("VM Error: Array size cannot be negative.".to_string());
+                        }
+                        // Create a contiguous block of memory
+                        let vec = vec![VmValue::Int(init); size as usize];
+                        Ok(VmValue::Array(vec))
+                    }
+                    _ => Err("VM Error: ArrayAlloc requires Ints.".to_string()),
+                }
+            }
+
+            IrNode::ArraySwap(arr_node, idx_node, val_node) => {
+                let arr_val = self.evaluate(env, arr_node)?;
+                let idx_val = self.evaluate(env, idx_node)?;
+                let new_val = self.evaluate(env, val_node)?;
+
+                match (arr_val, idx_val) {
+                    (VmValue::Array(mut vec), VmValue::Int(idx)) => {
+                        let idx_usize = idx as usize;
+                        if idx_usize >= vec.len() {
+                            return Err(format!("VM Error: Index {} out of bounds for array of size {}.", idx, vec.len()));
+                        }
+                        
+                        // Perform the hardware-level swap
+                        let old_val = std::mem::replace(&mut vec[idx_usize], new_val);
+                        
+                        // Return the mathematical Pair(OldValue, NewArray)
+                        Ok(VmValue::Pair(Box::new(old_val), Box::new(VmValue::Array(vec))))
+                    }
+                    _ => Err("VM Error: ArraySwap requires an Array and an Int index.".to_string()),
+                }
+            }
         }
-        Ok(self.stack.pop())
     }
 }

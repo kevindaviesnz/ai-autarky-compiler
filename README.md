@@ -1,67 +1,60 @@
-🐍 Autarky Compiler (Project Ouroboros)
-Autarky is a Turing-complete, linearly-typed functional programming language, compiler, and custom Virtual Machine built entirely from scratch in Rust.
+# Autarky (Project Ouroboros)
 
-The crowning achievement of Autarky is its Linear Type System, which guarantees strict memory safety, prevents double-frees, and eliminates memory leaks at compile time—all without the runtime overhead of a Garbage Collector.
+Autarky is a statically typed, functional systems programming language built on a strict **Linear Type System**. 
 
-By Stage 9, Autarky achieved The Singularity: it is a self-hosting language capable of parsing, type-checking, and compiling its own deeply nested Abstract Syntax Tree.
+It is designed for domains where correctness is critical and failure is catastrophic. By treating variables as physical resources that must be consumed exactly once, Autarky mathematically guarantees memory safety and eliminates the need for a Garbage Collector.
 
-✨ Key Features
-Mathematical Memory Safety: Implements a substructural/linear type system where every bound variable must be consumed exactly once.
 
-The Scope Janitor: A rigorous compile-time environment checker that verifies timeline integrity. If a variable is dropped, or if a conditional branch leaks a variable that its sibling branch consumes, the compiler safely panics before a single byte of code is executed.
 
-Zero-Cost Abstractions: Once the linear type checker mathematically proves the memory timeline is sound, the compiler performs "Proof Erasure," stripping away the type constraints and generating highly optimized, raw Intermediate Representation (IR).
+## ⚡ Core Philosophy
 
-Custom Stack-Based VM: A native Rust runtime environment designed to execute Autarky's flattened bytecode, featuring dynamic jump offsets for branching and heap-allocated closure captures.
+* **Zero Garbage Collection:** Memory is perfectly managed at compile-time. There are no runtime GC pauses, making execution 100% deterministic.
+* **The "Scope Janitor":** If you forget to use a variable (memory leak) or try to use a variable twice (double-free/data race), the compiler will panic and refuse to build your code. 
+* **Proof Erasure:** Once the compiler mathematically proves your program is safe, it strips all type metadata. The resulting bytecode runs with zero overhead.
+* **Self-Hosting (The Singularity):** Autarky is capable of compiling itself. The compiler understands its own linear logic.
 
-Self-Hosting Architecture: Autarky's compiler logic (parsing, unpacking, branching, and bytecode generation) is written in Autarky itself.
+## 🚀 Quick Start
 
-🧠 The Compiler Pipeline
-Parser: Lexes and parses the raw .aut source code into a heavily nested Abstract Syntax Tree (AST).
+Ensure you have [Rust](https://www.rust-lang.org/) installed, then clone the repository and run the compiler:
 
-Linear Type Checker: Evaluates the AST against strict linear logic rules. It clones and splits memory contexts for Match statements and enforces the Branch Equivalence Rule.
-
-IR Generator (Proof Erasure): Discards type constraints after mathematical validation, producing a lean Intermediate Representation.
-
-Code Generator: Translates tree-based IR into a flat, 1D array of bytecode instructions, dynamically calculating absolute jump offsets for the Virtual Machine.
-
-Virtual Machine (Execution): A stack-based runtime that consumes the bytecode, manages the simulated memory pointer, and handles closures and variable bindings.
-
-🧮 The Bootstrapping Instruction Set
-To successfully bootstrap itself and avoid terminal character-limit constraints during compilation, Autarky operates on a highly optimized, 9-variant instruction set:
-
-PushVar(id): Looks up and pushes a variable from the environment.
-
-MakeClosure(id, body): Captures the environment and generates a callable lambda.
-
-Call: Executes a closure.
-
-Return: Exits the current frame.
-
-MakePair: Consumes the top two stack values and allocates a Tuple.
-
-UnpackAndBind(id1, id2): Destructures a Tuple and binds its values to the environment.
-
-MakeLeft: Postfix operation wrapping the stack top in a Left Sum Type.
-
-MakeRight: Postfix operation wrapping the stack top in a Right Sum Type.
-
-BranchMatch(offset): Evaluates a Sum Type. Proceeds on Left, or jumps offset instructions forward on Right.
-
-🚀 Getting Started
-Ensure you have Rust and Cargo installed, then run the Autarky Bootstrapper against the target source file:
+```bash
+git clone [https://github.com/yourusername/autarky.git](https://github.com/yourusername/autarky.git)
+cd autarky
+cargo build --release
+To run an Autarky script through the built-in Virtual Machine:
 
 Bash
-cargo run --release -- --file main.aut
-Example Execution Pipeline
+cargo run --release -- --file examples/hello.aut
+📖 Documentation
+Whether you are writing your first linear program or looking to contribute to the compiler's core, start here:
 
-Plaintext
-========================================
-🐍 Autarky Compiler Bootstrapper v1.1.0
-========================================
-✅ Type Check Passed (Memory Safety Guaranteed)
-✅ Proof Erasure Complete
-✅ Bytecode Generated
-----------------------------------------
-🚀 Executing inside Autarky VM...
-✅ Execution Finished Successfully!
+The Language Tutorial: Learn how to think in linear types, unpack pairs, and manage state without mutating variables.
+
+Syntax Cheat Sheet: A quick reference guide for Autarky's keywords and grammar.
+
+Project FAQ: Answers to common questions about Substructural Logic, Branch Equivalence, and the "Ouroboros" cycle.
+
+Contributor Guide: Read this before submitting a Pull Request. Learn how our AST is structured and how to interface with the Type Checker.
+
+💻 Example: The Linear Timeline
+In Autarky, variables cannot be duplicated or dropped. They must flow perfectly from creation to destruction.
+
+Code snippet
+// A function that buys a coffee. 
+// It strictly consumes a Token (Int) and returns a Pair containing the Coffee and the Change.
+\buy_coffee : (Int -> Pair Int Int) .
+
+  // The user's wallet containing a single Token
+  \my_token : Int . 
+
+    // We must unpack the result and strictly consume BOTH the coffee and the change.
+    unpack (buy_coffee my_token) into coffee, change in
+      
+      // We bundle them back up to satisfy the compiler's requirement that nothing is lost.
+      mkpair coffee change
+🗺️ Roadmap: The LLVM Backend
+Autarky currently compiles to a custom bytecode executed by our own stack-based Virtual Machine.
+
+Next Major Milestone: We are actively replacing the VM with a native LLVM Backend (via the inkwell crate). Because Autarky's linear types map flawlessly onto LLVM's Static Single Assignment (SSA) form, this upgrade will allow Autarky to compile directly into highly optimized x86_64 and ARM machine code. Check the issues tab if you want to help us bridge the FFI boundary!
+
+Project Ouroboros — Digital Physics, enforced at compile-time.
