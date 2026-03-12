@@ -3,162 +3,130 @@
 use std::collections::HashMap;
 use crate::ir::IrNode;
 
-/// The runtime values that the Virtual Machine actually computes and passes around.
 #[derive(Debug, Clone)]
-pub enum VmValue {
+pub enum Value {
     Int(i64),
-    Pair(Box<VmValue>, Box<VmValue>),
-    Left(Box<VmValue>),
-    Right(Box<VmValue>),
-    Array(Vec<VmValue>),
-    // A function that remembers the environment it was created in
-    Closure {
-        param: String,
-        body: IrNode,
-        env: HashMap<String, VmValue>,
-    },
+    Pair(Box<Value>, Box<Value>),
+    Array(Vec<Value>),
+    Closure(String, IrNode, HashMap<String, Value>),
 }
 
-pub struct VirtualMachine;
+pub struct VirtualMachine {}
 
 impl VirtualMachine {
     pub fn new() -> Self {
-        VirtualMachine
+        Self {}
     }
 
-    /// Evaluates an IR Node down to a final VmValue
-    pub fn evaluate(&mut self, env: &HashMap<String, VmValue>, node: &IrNode) -> Result<VmValue, String> {
+    pub fn evaluate(
+        &mut self,
+        env: &HashMap<String, Value>,
+        node: &IrNode,
+    ) -> Result<Value, String> {
         match node {
-            IrNode::Int(n) => Ok(VmValue::Int(*n)),
+            IrNode::Int(n) => Ok(Value::Int(*n)),
+            IrNode::Var(name) => env
+                .get(name)
+                .cloned()
+                .ok_or_else(|| format!("VM Error: Undefined variable '{}'", name)),
             
-            IrNode::Var(name) => {
-                env.get(name)
-                    .cloned()
-                    .ok_or_else(|| format!("VM Error: Variable '{}' not found in environment at runtime!", name))
-            }
-
-            IrNode::Lam(param, body) => {
-                Ok(VmValue::Closure {
-                    param: param.clone(),
-                    body: *body.clone(),
-                    env: env.clone(),
-                })
-            }
-
-            IrNode::App(func, arg) => {
-                let func_val = self.evaluate(env, func)?;
-                let arg_val = self.evaluate(env, arg)?;
-
-                match func_val {
-                    VmValue::Closure { param, body, mut env } => {
-                        env.insert(param, arg_val);
-                        self.evaluate(&env, &body)
-                    }
-                    _ => Err("VM Error: Tried to apply arguments to a non-function.".to_string()),
-                }
-            }
-
             IrNode::Add(l, r) => {
-                let left = self.evaluate(env, l)?;
-                let right = self.evaluate(env, r)?;
-                match (left, right) {
-                    (VmValue::Int(a), VmValue::Int(b)) => Ok(VmValue::Int(a + b)),
-                    _ => Err("VM Error: Math requires Ints.".to_string()),
+                let lv = self.evaluate(env, l)?;
+                let rv = self.evaluate(env, r)?;
+                match (lv, rv) {
+                    (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a + b)),
+                    _ => Err("VM Error: Type mismatch in Addition".to_string()),
                 }
             }
 
             IrNode::Sub(l, r) => {
-                let left = self.evaluate(env, l)?;
-                let right = self.evaluate(env, r)?;
-                match (left, right) {
-                    (VmValue::Int(a), VmValue::Int(b)) => Ok(VmValue::Int(a - b)),
-                    _ => Err("VM Error: Math requires Ints.".to_string()),
+                let lv = self.evaluate(env, l)?;
+                let rv = self.evaluate(env, r)?;
+                match (lv, rv) {
+                    (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a - b)),
+                    _ => Err("VM Error: Type mismatch in Subtraction".to_string()),
+                }
+            }
+
+            IrNode::Lam(param, body) => {
+                Ok(Value::Closure(param.clone(), *body.clone(), env.clone()))
+            }
+
+            IrNode::App(func, arg) => {
+                let fv = self.evaluate(env, func)?;
+                let av = self.evaluate(env, arg)?;
+                if let Value::Closure(param, body, mut closure_env) = fv {
+                    closure_env.insert(param, av);
+                    self.evaluate(&closure_env, &body)
+                } else {
+                    Err("VM Error: Attempted to call a non-function".to_string())
                 }
             }
 
             IrNode::MkPair(l, r) => {
-                let left = self.evaluate(env, l)?;
-                let right = self.evaluate(env, r)?;
-                Ok(VmValue::Pair(Box::new(left), Box::new(right)))
+                let lv = self.evaluate(env, l)?;
+                let rv = self.evaluate(env, r)?;
+                Ok(Value::Pair(Box::new(lv), Box::new(rv)))
             }
 
-            IrNode::Unpack(v1, v2, pair_node, body) => {
-                let pair_val = self.evaluate(env, pair_node)?;
-                match pair_val {
-                    VmValue::Pair(l, r) => {
-                        let mut new_env = env.clone();
-                        new_env.insert(v1.clone(), *l);
-                        new_env.insert(v2.clone(), *r);
-                        self.evaluate(&new_env, body)
-                    }
-                    _ => Err("VM Error: Cannot unpack a non-pair.".to_string()),
+            IrNode::Left(p) => {
+                if let Value::Pair(l, _) = self.evaluate(env, p)? {
+                    Ok(*l)
+                } else {
+                    Err("VM Error: Expected a Pair for 'Left'".to_string())
                 }
             }
 
-            IrNode::Left(val) => {
-                let inner = self.evaluate(env, val)?;
-                Ok(VmValue::Left(Box::new(inner)))
+            IrNode::Right(p) => {
+                if let Value::Pair(_, r) = self.evaluate(env, p)? {
+                    Ok(*r)
+                } else {
+                    Err("VM Error: Expected a Pair for 'Right'".to_string())
+                }
             }
 
-            IrNode::Right(val) => {
-                let inner = self.evaluate(env, val)?;
-                Ok(VmValue::Right(Box::new(inner)))
+            IrNode::Unpack(v1, v2, p, body) => {
+                if let Value::Pair(l, r) = self.evaluate(env, p)? {
+                    let mut local_env = env.clone();
+                    local_env.insert(v1.clone(), *l);
+                    local_env.insert(v2.clone(), *r);
+                    self.evaluate(&local_env, body)
+                } else {
+                    Err("VM Error: Expected a Pair for 'Unpack'".to_string())
+                }
+            }
+
+            IrNode::ArrayAlloc(sz, init) => {
+                let size = if let Value::Int(s) = self.evaluate(env, sz)? {
+                    s as usize
+                } else {
+                    return Err("VM Error: Array size must be an Integer".to_string());
+                };
+                let init_val = self.evaluate(env, init)?;
+                Ok(Value::Array(vec![init_val; size]))
+            }
+
+            IrNode::ArraySwap(arr, idx, val) => {
+                let mut av = self.evaluate(env, arr)?;
+                let i = if let Value::Int(index) = self.evaluate(env, idx)? {
+                    index as usize
+                } else {
+                    return Err("VM Error: Array index must be an Integer".to_string());
+                };
+                let new_val = self.evaluate(env, val)?;
+
+                if let Value::Array(ref mut elements) = av {
+                    let old_val = elements[i].clone();
+                    elements[i] = new_val;
+                    Ok(Value::Pair(Box::new(old_val), Box::new(av.clone())))
+                } else {
+                    Err("VM Error: Expected an Array for 'Swap'".to_string())
+                }
             }
 
             IrNode::Match(expr, l_var, l_body, r_var, r_body) => {
-                let match_val = self.evaluate(env, expr)?;
-                match match_val {
-                    VmValue::Left(inner) => {
-                        let mut new_env = env.clone();
-                        new_env.insert(l_var.clone(), *inner);
-                        self.evaluate(&new_env, l_body)
-                    }
-                    VmValue::Right(inner) => {
-                        let mut new_env = env.clone();
-                        new_env.insert(r_var.clone(), *inner);
-                        self.evaluate(&new_env, r_body)
-                    }
-                    _ => Err("VM Error: Cannot match on a non-Either value.".to_string()),
-                }
-            }
-
-            IrNode::ArrayAlloc(size_node, init_node) => {
-                let size_val = self.evaluate(env, size_node)?;
-                let init_val = self.evaluate(env, init_node)?;
-
-                match (size_val, init_val) {
-                    (VmValue::Int(size), VmValue::Int(init)) => {
-                        if size < 0 {
-                            return Err("VM Error: Array size cannot be negative.".to_string());
-                        }
-                        // Create a contiguous block of memory
-                        let vec = vec![VmValue::Int(init); size as usize];
-                        Ok(VmValue::Array(vec))
-                    }
-                    _ => Err("VM Error: ArrayAlloc requires Ints.".to_string()),
-                }
-            }
-
-            IrNode::ArraySwap(arr_node, idx_node, val_node) => {
-                let arr_val = self.evaluate(env, arr_node)?;
-                let idx_val = self.evaluate(env, idx_node)?;
-                let new_val = self.evaluate(env, val_node)?;
-
-                match (arr_val, idx_val) {
-                    (VmValue::Array(mut vec), VmValue::Int(idx)) => {
-                        let idx_usize = idx as usize;
-                        if idx_usize >= vec.len() {
-                            return Err(format!("VM Error: Index {} out of bounds for array of size {}.", idx, vec.len()));
-                        }
-                        
-                        // Perform the hardware-level swap
-                        let old_val = std::mem::replace(&mut vec[idx_usize], new_val);
-                        
-                        // Return the mathematical Pair(OldValue, NewArray)
-                        Ok(VmValue::Pair(Box::new(old_val), Box::new(VmValue::Array(vec))))
-                    }
-                    _ => Err("VM Error: ArraySwap requires an Array and an Int index.".to_string()),
-                }
+                // Simplified VM Match logic for Sum types
+                Err("VM Match logic for Left/Right is the next feature to implement!".to_string())
             }
         }
     }
