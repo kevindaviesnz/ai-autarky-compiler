@@ -1,3 +1,19 @@
-\x : Int .
-  unpack (array_swap (array_alloc 5 0) 0 x) into old_val, new_arr in
-    mkpair old_val new_arr
+# Autarky v0.1 - Tail Call Recursion Sum
+# Summing 10 down to 0 to test both VM and LLVM
+# Expected Result: 55
+
+let sum_n = \s . 
+    unpack s as n, acc in
+        match (eq n 0) {
+            # Base Case: just return the accumulator (Int)
+            left val => 
+                acc
+            
+            # Recursive Step: just return the next call (Int)
+            right val => 
+                sum_n (sub n 1, add acc n)
+        }
+in
+# The Autarky runner applies '42' to the final expression to start the program.
+# We use a lambda (\init) to catch that 42, ignore it, and start our loop.
+\init . sum_n (10, 0)

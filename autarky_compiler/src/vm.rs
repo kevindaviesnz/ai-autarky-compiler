@@ -9,6 +9,8 @@ pub enum Value {
     Pair(Box<Value>, Box<Value>),
     Array(Vec<Value>),
     Closure(String, IrNode, HashMap<String, Value>),
+    // Special variant to allow recursive function calls in an immutable environment
+    RecClosure(String, String, IrNode, HashMap<String, Value>), 
 }
 
 pub struct VirtualMachine {}
@@ -25,6 +27,7 @@ impl VirtualMachine {
     ) -> Result<Value, String> {
         match node {
             IrNode::Int(n) => Ok(Value::Int(*n)),
+            
             IrNode::Var(name) => env
                 .get(name)
                 .cloned()
@@ -48,18 +51,53 @@ impl VirtualMachine {
                 }
             }
 
+            IrNode::Eq(l, r) => {
+                let lv = self.evaluate(env, l)?;
+                let rv = self.evaluate(env, r)?;
+                match (lv, rv) {
+                    (Value::Int(a), Value::Int(b)) => {
+                        Ok(Value::Int(if a == b { 1 } else { 0 }))
+                    },
+                    _ => Err("VM Error: Type mismatch in Equality".to_string()),
+                }
+            }
+
             IrNode::Lam(param, body) => {
                 Ok(Value::Closure(param.clone(), *body.clone(), env.clone()))
             }
 
             IrNode::App(func, arg) => {
+                // INTERCEPT: Recursive Let Binding
+                if let IrNode::Lam(bind_name, in_body) = &**func {
+                    if let IrNode::Lam(fn_param, fn_body) = &**arg {
+                        let rec_closure = Value::RecClosure(
+                            bind_name.clone(), 
+                            fn_param.clone(), 
+                            *fn_body.clone(), 
+                            env.clone()
+                        );
+                        let mut local_env = env.clone();
+                        local_env.insert(bind_name.clone(), rec_closure);
+                        return self.evaluate(&local_env, in_body);
+                    }
+                }
+
+                // Standard Application
                 let fv = self.evaluate(env, func)?;
                 let av = self.evaluate(env, arg)?;
-                if let Value::Closure(param, body, mut closure_env) = fv {
-                    closure_env.insert(param, av);
-                    self.evaluate(&closure_env, &body)
-                } else {
-                    Err("VM Error: Attempted to call a non-function".to_string())
+                match fv {
+                    Value::Closure(param, body, mut closure_env) => {
+                        closure_env.insert(param, av);
+                        self.evaluate(&closure_env, &body)
+                    }
+                    Value::RecClosure(fn_name, param, body, mut closure_env) => {
+                        // Inject itself into the environment right before execution
+                        let self_ref = Value::RecClosure(fn_name.clone(), param.clone(), body.clone(), closure_env.clone());
+                        closure_env.insert(fn_name, self_ref);
+                        closure_env.insert(param, av);
+                        self.evaluate(&closure_env, &body)
+                    }
+                    _ => Err("VM Error: Attempted to call a non-function".to_string())
                 }
             }
 
@@ -125,8 +163,22 @@ impl VirtualMachine {
             }
 
             IrNode::Match(expr, l_var, l_body, r_var, r_body) => {
-                // Simplified VM Match logic for Sum types
-                Err("VM Match logic for Left/Right is the next feature to implement!".to_string())
+                let match_val = self.evaluate(env, expr)?;
+                if let Value::Int(v) = match_val {
+                    if v != 0 {
+                        // Non-zero equates to True (Left branch)
+                        let mut local_env = env.clone();
+                        local_env.insert(l_var.clone(), Value::Int(v));
+                        self.evaluate(&local_env, l_body)
+                    } else {
+                        // Zero equates to False (Right branch)
+                        let mut local_env = env.clone();
+                        local_env.insert(r_var.clone(), Value::Int(v));
+                        self.evaluate(&local_env, r_body)
+                    }
+                } else {
+                    Err("VM Error: Match expression must evaluate to an Integer".to_string())
+                }
             }
         }
     }

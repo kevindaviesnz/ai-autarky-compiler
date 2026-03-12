@@ -6,3 +6,4 @@ description = "Stage 0 Bootstrapper for the Autarky Compiler"
 
 [dependencies]
 clap = { version = "4.4", features = ["derive"] }
+inkwell = { version = "0.8.0", features = ["llvm17-0"] }
