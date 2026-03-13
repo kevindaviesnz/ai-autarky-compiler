@@ -1,0 +1,6 @@
+# mint_test.aut
+# Proving resource injection for the atk-mint protocol
+
+add 
+    (mul SYS_COMPUTE 10) 
+    SYS_CREDITS

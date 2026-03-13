@@ -34,15 +34,34 @@ impl<'a> Parser<'a> {
         let mut end = start;
         let first_char = self.input[start..].chars().next()?;
         
-        if first_char.is_alphanumeric() || first_char == '_' {
-            while end < self.input.len() && (self.input[end..].chars().next()?.is_alphanumeric() || self.input[end..].starts_with('_')) {
-                end += 1;
+        if first_char.is_numeric() {
+            let mut has_dot = false;
+            while end < self.input.len() {
+                let next_char = self.input[end..].chars().next()?;
+                if next_char.is_numeric() {
+                    end += next_char.len_utf8();
+                } else if next_char == '.' && !has_dot {
+                    has_dot = true;
+                    end += next_char.len_utf8();
+                } else {
+                    break;
+                }
+            }
+        } else if first_char.is_alphabetic() || first_char == '_' {
+            while end < self.input.len() {
+                let next_char = self.input[end..].chars().next()?;
+                if next_char.is_alphanumeric() || next_char == '_' {
+                    end += next_char.len_utf8();
+                } else {
+                    break;
+                }
             }
         } else if self.input[start..].starts_with("=>") {
             end += 2;
         } else {
-            end += 1;
+            end += first_char.len_utf8();
         }
+        
         Some(&self.input[start..end])
     }
 
@@ -71,7 +90,8 @@ impl<'a> Parser<'a> {
     fn parse_expr(&mut self) -> Result<Expr, String> {
         let mut expr = self.parse_primary()?;
         while let Some(next) = self.peek() {
-            if next == "(" || next.chars().all(|c| c.is_numeric()) || (next.chars().next().unwrap().is_alphabetic() && next != "in" && next != "as" && next != "}" && next != "," && next != "right") {
+            let first_char = next.chars().next().unwrap();
+            if next == "(" || first_char.is_numeric() || (first_char.is_alphabetic() && next != "in" && next != "as" && next != "}" && next != "," && next != "right") {
                 let arg = self.parse_primary()?;
                 expr = Expr::App { func: Box::new(expr), arg: Box::new(arg) };
             } else {
@@ -90,6 +110,8 @@ impl<'a> Parser<'a> {
             "match" => self.parse_match(),
             "sub" => { self.consume("sub")?; Ok(Expr::Sub(Box::new(self.parse_primary()?), Box::new(self.parse_primary()?))) }
             "add" => { self.consume("add")?; Ok(Expr::Add(Box::new(self.parse_primary()?), Box::new(self.parse_primary()?))) }
+            "mul" => { self.consume("mul")?; Ok(Expr::Mul(Box::new(self.parse_primary()?), Box::new(self.parse_primary()?))) } // NEW
+            "div" => { self.consume("div")?; Ok(Expr::Div(Box::new(self.parse_primary()?), Box::new(self.parse_primary()?))) } // NEW
             "eq"  => { self.consume("eq")?; Ok(Expr::Eq { left: Box::new(self.parse_primary()?), right: Box::new(self.parse_primary()?) }) }
             "left" => { self.consume("left")?; Ok(Expr::Left(Box::new(self.parse_primary()?), Type::Int)) }
             "right" => { self.consume("right")?; Ok(Expr::Right(Box::new(self.parse_primary()?), Type::Int)) }
@@ -107,10 +129,17 @@ impl<'a> Parser<'a> {
                 }
             }
             _ => {
-                if token.chars().all(|c| c.is_numeric()) {
-                    let n = token.parse().unwrap();
-                    self.pos += token.len();
-                    Ok(Expr::IntLiteral(n))
+                let first_char = token.chars().next().unwrap();
+                if first_char.is_numeric() {
+                    if token.contains('.') {
+                        let f: f64 = token.parse().map_err(|_| format!("Invalid float format: {}", token))?;
+                        self.pos += token.len();
+                        Ok(Expr::FloatLiteral(f))
+                    } else {
+                        let n: i64 = token.parse().map_err(|_| format!("Invalid integer format: {}", token))?;
+                        self.pos += token.len();
+                        Ok(Expr::IntLiteral(n))
+                    }
                 } else {
                     let name = self.consume_ident()?;
                     Ok(Expr::Variable(name))
@@ -127,8 +156,6 @@ impl<'a> Parser<'a> {
         self.consume("in")?;
         let body = Box::new(self.parse_expr()?);
         
-        // Use a dummy type that we expect the checker to ignore or overwrite
-        // In a real compiler, this would be a Type Variable.
         Ok(Expr::App { 
             func: Box::new(Expr::Lambda { param: name, param_type: Type::Int, body }), 
             arg: val 
@@ -142,7 +169,6 @@ impl<'a> Parser<'a> {
         self.consume(".")?;
         let body = Box::new(self.parse_expr()?);
         
-        // We assume the parameter is a Pair for our current main.aut
         let param_type = Type::Pair(Box::new(Type::Int), Box::new(Type::Int));
         Ok(Expr::Lambda { param, param_type, body })
     }

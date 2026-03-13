@@ -5,7 +5,6 @@ use std::collections::HashMap;
 use inkwell::builder::{Builder, BuilderError};
 use inkwell::context::Context;
 use inkwell::module::Module;
-use inkwell::types::BasicType;
 use inkwell::values::{BasicValueEnum, FunctionValue};
 use crate::ir::IrNode;
 
@@ -50,6 +49,9 @@ impl<'ctx> Compiler<'ctx> {
         let ret_int = if return_value.is_pointer_value() {
             self.builder.build_ptr_to_int(return_value.into_pointer_value(), self.context.i64_type(), "ret_cast")
                 .map_err(|e: BuilderError| e.to_string())?.into()
+        } else if return_value.is_float_value() {
+            self.builder.build_bit_cast(return_value, self.context.i64_type(), "f_cast")
+                .map_err(|e: BuilderError| e.to_string())?.into()
         } else {
             return_value
         };
@@ -68,25 +70,69 @@ impl<'ctx> Compiler<'ctx> {
                 let i64_type = self.context.i64_type();
                 Ok(i64_type.const_int(*n as u64, false).into())
             }
+            IrNode::Float(f) => {
+                let f64_type = self.context.f64_type();
+                Ok(f64_type.const_float(*f).into())
+            }
             IrNode::Var(name) => {
                 env.get(name).copied().ok_or_else(|| format!("LLVM Error: Undefined variable '{}'", name))
             }
             IrNode::Add(left, right) => {
-                let lhs = self.compile_ir(left, env)?.into_int_value();
-                let rhs = self.compile_ir(right, env)?.into_int_value();
-                self.builder.build_int_add(lhs, rhs, "addtmp").map_err(|e| e.to_string()).map(Into::into)
+                let lhs = self.compile_ir(left, env)?;
+                let rhs = self.compile_ir(right, env)?;
+                if lhs.is_int_value() && rhs.is_int_value() {
+                    self.builder.build_int_add(lhs.into_int_value(), rhs.into_int_value(), "addtmp").map_err(|e| e.to_string()).map(Into::into)
+                } else if lhs.is_float_value() && rhs.is_float_value() {
+                    self.builder.build_float_add(lhs.into_float_value(), rhs.into_float_value(), "faddtmp").map_err(|e| e.to_string()).map(Into::into)
+                } else {
+                    Err("LLVM Error: Type mismatch in Add".to_string())
+                }
             }
             IrNode::Sub(left, right) => {
-                let lhs = self.compile_ir(left, env)?.into_int_value();
-                let rhs = self.compile_ir(right, env)?.into_int_value();
-                self.builder.build_int_sub(lhs, rhs, "subtmp").map_err(|e| e.to_string()).map(Into::into)
+                let lhs = self.compile_ir(left, env)?;
+                let rhs = self.compile_ir(right, env)?;
+                if lhs.is_int_value() && rhs.is_int_value() {
+                    self.builder.build_int_sub(lhs.into_int_value(), rhs.into_int_value(), "subtmp").map_err(|e| e.to_string()).map(Into::into)
+                } else if lhs.is_float_value() && rhs.is_float_value() {
+                    self.builder.build_float_sub(lhs.into_float_value(), rhs.into_float_value(), "fsubtmp").map_err(|e| e.to_string()).map(Into::into)
+                } else {
+                    Err("LLVM Error: Type mismatch in Sub".to_string())
+                }
+            }
+            IrNode::Mul(left, right) => {
+                let lhs = self.compile_ir(left, env)?;
+                let rhs = self.compile_ir(right, env)?;
+                if lhs.is_int_value() && rhs.is_int_value() {
+                    self.builder.build_int_mul(lhs.into_int_value(), rhs.into_int_value(), "multmp").map_err(|e| e.to_string()).map(Into::into)
+                } else if lhs.is_float_value() && rhs.is_float_value() {
+                    self.builder.build_float_mul(lhs.into_float_value(), rhs.into_float_value(), "fmultmp").map_err(|e| e.to_string()).map(Into::into)
+                } else {
+                    Err("LLVM Error: Type mismatch in Mul".to_string())
+                }
+            }
+            IrNode::Div(left, right) => {
+                let lhs = self.compile_ir(left, env)?;
+                let rhs = self.compile_ir(right, env)?;
+                if lhs.is_int_value() && rhs.is_int_value() {
+                    self.builder.build_int_signed_div(lhs.into_int_value(), rhs.into_int_value(), "divtmp").map_err(|e| e.to_string()).map(Into::into)
+                } else if lhs.is_float_value() && rhs.is_float_value() {
+                    self.builder.build_float_div(lhs.into_float_value(), rhs.into_float_value(), "fdivtmp").map_err(|e| e.to_string()).map(Into::into)
+                } else {
+                    Err("LLVM Error: Type mismatch in Div".to_string())
+                }
             }
             IrNode::Eq(left, right) => {
-                let lhs = self.compile_ir(left, env)?.into_int_value();
-                let rhs = self.compile_ir(right, env)?.into_int_value();
-                let cmp = self.builder.build_int_compare(inkwell::IntPredicate::EQ, lhs, rhs, "eqtmp")
-                    .map_err(|e| e.to_string())?;
-                Ok(cmp.into())
+                let lhs = self.compile_ir(left, env)?;
+                let rhs = self.compile_ir(right, env)?;
+                if lhs.is_int_value() && rhs.is_int_value() {
+                    let cmp = self.builder.build_int_compare(inkwell::IntPredicate::EQ, lhs.into_int_value(), rhs.into_int_value(), "eqtmp").map_err(|e| e.to_string())?;
+                    Ok(cmp.into())
+                } else if lhs.is_float_value() && rhs.is_float_value() {
+                    let cmp = self.builder.build_float_compare(inkwell::FloatPredicate::OEQ, lhs.into_float_value(), rhs.into_float_value(), "feqtmp").map_err(|e| e.to_string())?;
+                    Ok(cmp.into())
+                } else {
+                    Err("LLVM Error: Type mismatch in Eq".to_string())
+                }
             }
             IrNode::Lam(param, body) => {
                 let count = self.lambda_counter.get();
@@ -110,6 +156,8 @@ impl<'ctx> Compiler<'ctx> {
                 
                 let ret_int = if return_val.is_pointer_value() {
                     self.builder.build_ptr_to_int(return_val.into_pointer_value(), i64_type, "ret_cast").map_err(|e| e.to_string())?.into()
+                } else if return_val.is_float_value() {
+                    self.builder.build_bit_cast(return_val, i64_type, "f_cast").map_err(|e: BuilderError| e.to_string())?.into()
                 } else {
                     return_val
                 };
@@ -119,20 +167,16 @@ impl<'ctx> Compiler<'ctx> {
                 Ok(function.as_global_value().as_pointer_value().into())
             }
             IrNode::App(func, arg) => {
-                // RECURSION FIX FOR LLVM: Intercept let-bound functions
                 if let IrNode::Lam(bind_name, in_body) = &**func {
                     if let IrNode::Lam(fn_param, fn_body) = &**arg {
                         let i64_type = self.context.i64_type();
                         let fn_type = i64_type.fn_type(&[i64_type.into()], false);
                         
-                        // 1. Pre-declare the LLVM function so we have a pointer to it
                         let fn_val = self.module.add_function(&format!("rec_{}", bind_name), fn_type, None);
                         
-                        // 2. Insert it into the environment BEFORE compiling the body
                         let mut rec_env = env.clone();
                         rec_env.insert(bind_name.clone(), fn_val.as_global_value().as_pointer_value().into());
                         
-                        // 3. Compile the function body
                         let current_block = self.builder.get_insert_block().unwrap();
                         let basic_block = self.context.append_basic_block(fn_val, "entry");
                         self.builder.position_at_end(basic_block);
@@ -146,18 +190,18 @@ impl<'ctx> Compiler<'ctx> {
                         let ret_val = self.compile_ir(fn_body, &mut fn_env)?;
                         let ret_int = if ret_val.is_pointer_value() {
                             self.builder.build_ptr_to_int(ret_val.into_pointer_value(), i64_type, "ret_cast").unwrap().into()
+                        } else if ret_val.is_float_value() {
+                            self.builder.build_bit_cast(ret_val, i64_type, "f_cast").unwrap().into()
                         } else {
                             ret_val
                         };
                         self.builder.build_return(Some(&ret_int)).unwrap();
                         
-                        // 4. Restore block and compile the application body with the function in scope
                         self.builder.position_at_end(current_block);
                         return self.compile_ir(in_body, &mut rec_env);
                     }
                 }
 
-                // NORMAL APPLICATION
                 let compiled_func = self.compile_ir(func, env)?;
                 let compiled_arg = self.compile_ir(arg, env)?;
                 let i64_type = self.context.i64_type();
@@ -172,31 +216,38 @@ impl<'ctx> Compiler<'ctx> {
 
                 let arg_int = if compiled_arg.is_pointer_value() {
                     self.builder.build_ptr_to_int(compiled_arg.into_pointer_value(), i64_type, "arg_cast").unwrap().into()
+                } else if compiled_arg.is_float_value() {
+                    self.builder.build_bit_cast(compiled_arg, i64_type, "f_cast").unwrap().into()
                 } else {
                     compiled_arg
                 };
                 
                 let call_site = self.builder.build_indirect_call(fn_type, func_ptr, &[arg_int.into()], "calltmp").map_err(|e| e.to_string())?;
                 
-                // TAIL CALL OPTIMIZATION ENABLED
                 call_site.set_tail_call(true);
                 
-                Ok(call_site.try_as_basic_value().unwrap_basic())
+                // FIXED: Changed to .left().unwrap()
+                Ok(call_site.try_as_basic_value().left().unwrap())
             }
             IrNode::MkPair(left, right) => {
                 let lhs = self.compile_ir(left, env)?;
                 let rhs = self.compile_ir(right, env)?;
                 let i64_type = self.context.i64_type();
                 
-                let lhs_int = if lhs.is_pointer_value() { self.builder.build_ptr_to_int(lhs.into_pointer_value(), i64_type, "l_cast").unwrap().into() } else { lhs };
-                let rhs_int = if rhs.is_pointer_value() { self.builder.build_ptr_to_int(rhs.into_pointer_value(), i64_type, "r_cast").unwrap().into() } else { rhs };
+                let lhs_int = if lhs.is_pointer_value() { self.builder.build_ptr_to_int(lhs.into_pointer_value(), i64_type, "l_cast").unwrap().into() } else if lhs.is_float_value() { self.builder.build_bit_cast(lhs, i64_type, "f_cast").unwrap().into() } else { lhs };
+                let rhs_int = if rhs.is_pointer_value() { self.builder.build_ptr_to_int(rhs.into_pointer_value(), i64_type, "r_cast").unwrap().into() } else if rhs.is_float_value() { self.builder.build_bit_cast(rhs, i64_type, "f_cast").unwrap().into() } else { rhs };
 
                 let struct_type = self.context.struct_type(&[i64_type.into(), i64_type.into()], false);
-                let size = struct_type.size_of().unwrap();
+                
+                let null_ptr = self.context.ptr_type(inkwell::AddressSpace::default()).const_null();
+                let size_ptr = unsafe { self.builder.build_gep(struct_type, null_ptr, &[i64_type.const_int(1, false)], "size_gep").unwrap() };
+                let size = self.builder.build_ptr_to_int(size_ptr, i64_type, "size_int").unwrap();
+                
                 let malloc_fn = self.module.get_function("malloc").unwrap();
                 let malloc_call = self.builder.build_direct_call(malloc_fn, &[size.into()], "malloc_pair").map_err(|e| e.to_string())?;
                 
-                let pair_ptr = malloc_call.try_as_basic_value().unwrap_basic().into_pointer_value();
+                // FIXED: Changed to .left().unwrap()
+                let pair_ptr = malloc_call.try_as_basic_value().left().unwrap().into_pointer_value();
                 let ptr_0 = self.builder.build_struct_gep(struct_type, pair_ptr, 0, "p0").map_err(|e| e.to_string())?;
                 self.builder.build_store(ptr_0, lhs_int).map_err(|e| e.to_string())?;
                 let ptr_1 = self.builder.build_struct_gep(struct_type, pair_ptr, 1, "p1").map_err(|e| e.to_string())?;
@@ -240,59 +291,6 @@ impl<'ctx> Compiler<'ctx> {
                 local_env.insert(v2.clone(), self.builder.build_load(i64_type, p1, "v2").map_err(|e| e.to_string())?);
                 
                 self.compile_ir(body, &mut local_env)
-            }
-            IrNode::ArrayAlloc(sz, init) => {
-                let size_val = self.compile_ir(sz, env)?.into_int_value();
-                let init_val = self.compile_ir(init, env)?;
-                let element_type = init_val.get_type();
-                let total_size = self.builder.build_int_mul(size_val, element_type.size_of().unwrap(), "bytes").map_err(|e| e.to_string())?;
-                let malloc_fn = self.module.get_function("malloc").unwrap();
-                let array_ptr = self.builder.build_direct_call(malloc_fn, &[total_size.into()], "m_arr").map_err(|e| e.to_string())?.try_as_basic_value().unwrap_basic().into_pointer_value();
-                
-                let cur_fn = self.builder.get_insert_block().unwrap().get_parent().unwrap();
-                let cond_b = self.context.append_basic_block(cur_fn, "cond");
-                let body_b = self.context.append_basic_block(cur_fn, "body");
-                let end_b = self.context.append_basic_block(cur_fn, "end");
-                
-                let i64_type = self.context.i64_type();
-                let c_ptr = self.builder.build_alloca(i64_type, "i").map_err(|e| e.to_string())?;
-                self.builder.build_store(c_ptr, i64_type.const_int(0, false)).map_err(|e| e.to_string())?;
-                self.builder.build_unconditional_branch(cond_b).map_err(|e| e.to_string())?;
-                
-                self.builder.position_at_end(cond_b);
-                let i = self.builder.build_load(i64_type, c_ptr, "i_ld").map_err(|e| e.to_string())?.into_int_value();
-                let cond = self.builder.build_int_compare(inkwell::IntPredicate::ULT, i, size_val, "chk").map_err(|e| e.to_string())?;
-                self.builder.build_conditional_branch(cond, body_b, end_b).map_err(|e| e.to_string())?;
-                
-                self.builder.position_at_end(body_b);
-                let gep = unsafe { self.builder.build_gep(element_type, array_ptr, &[i], "idx").map_err(|e| e.to_string())? };
-                self.builder.build_store(gep, init_val).map_err(|e| e.to_string())?;
-                self.builder.build_store(c_ptr, self.builder.build_int_add(i, i64_type.const_int(1, false), "next").map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
-                self.builder.build_unconditional_branch(cond_b).map_err(|e| e.to_string())?;
-                
-                self.builder.position_at_end(end_b);
-                Ok(array_ptr.into())
-            }
-            IrNode::ArraySwap(arr, idx, val) => {
-                let c_arr = self.compile_ir(arr, env)?;
-                let ptr_type = self.context.ptr_type(inkwell::AddressSpace::default());
-                let ptr = if c_arr.is_int_value() { self.builder.build_int_to_ptr(c_arr.into_int_value(), ptr_type, "acast").unwrap() } else { c_arr.into_pointer_value() };
-                
-                let i = self.compile_ir(idx, env)?.into_int_value();
-                let v = self.compile_ir(val, env)?;
-                let el_t = v.get_type();
-                let gep = unsafe { self.builder.build_gep(el_t, ptr, &[i], "s_gep").map_err(|e| e.to_string())? };
-                let old = self.builder.build_load(el_t, gep, "old").map_err(|e| e.to_string())?;
-                self.builder.build_store(gep, v).map_err(|e| e.to_string())?;
-                
-                let st = self.context.struct_type(&[el_t, ptr.get_type().into()], false);
-                let res = self.builder.build_direct_call(self.module.get_function("malloc").unwrap(), &[st.size_of().unwrap().into()], "res").map_err(|e| e.to_string())?.try_as_basic_value().unwrap_basic().into_pointer_value();
-                let r0 = self.builder.build_struct_gep(st, res, 0, "r0").map_err(|e| e.to_string())?;
-                let r1 = self.builder.build_struct_gep(st, res, 1, "r1").map_err(|e| e.to_string())?;
-                self.builder.build_store(r0, old).map_err(|e| e.to_string())?;
-                self.builder.build_store(r1, ptr).map_err(|e| e.to_string())?;
-                
-                Ok(res.into())
             }
             IrNode::Match(expr, l_var, l_body, r_var, r_body) => {
                 let match_val = self.compile_ir(expr, env)?.into_int_value();

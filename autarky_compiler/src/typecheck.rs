@@ -17,29 +17,32 @@ impl TypeChecker {
     ) -> Result<(Type, HashMap<String, Type>), String> {
         match expr {
             Expr::IntLiteral(_) => Ok((Type::Int, env)),
+            Expr::FloatLiteral(_) => Ok((Type::Float, env)),
             
             Expr::Variable(name) => {
                 let t = env.get(name).cloned().ok_or_else(|| format!("Type Error: Undefined '{}'", name))?;
                 Ok((t, env))
             }
 
-            Expr::Add(l, r) | Expr::Sub(l, r) => {
+            // NEW: All math operations share the same strict typing rules
+            Expr::Add(l, r) | Expr::Sub(l, r) | Expr::Mul(l, r) | Expr::Div(l, r) => {
                 let (lt, env1) = self.check(env, l)?;
                 let (rt, env2) = self.check(env1, r)?;
-                if lt == Type::Int && rt == Type::Int {
-                    Ok((Type::Int, env2))
-                } else {
-                    Err("Type Error: Arithmetic requires Integers".to_string())
+                match (lt, rt) {
+                    (Type::Int, Type::Int) => Ok((Type::Int, env2)),
+                    (Type::Float, Type::Float) => Ok((Type::Float, env2)),
+                    (l_type, r_type) => Err(format!("Type Error: Arithmetic requires matching types. Got {:?} and {:?}", l_type, r_type)),
                 }
             }
 
             Expr::Eq { left, right } => {
                 let (lt, env1) = self.check(env, left)?;
                 let (rt, env2) = self.check(env1, right)?;
-                if lt == Type::Int && rt == Type::Int {
-                    Ok((Type::Either(Box::new(Type::Int), Box::new(Type::Int)), env2))
-                } else {
-                    Err("Type Error: eq requires Integers".to_string())
+                match (lt.clone(), rt.clone()) {
+                    (Type::Int, Type::Int) | (Type::Float, Type::Float) => {
+                        Ok((Type::Either(Box::new(lt), Box::new(rt)), env2))
+                    },
+                    _ => Err("Type Error: eq requires matching types".to_string())
                 }
             }
 
@@ -82,10 +85,7 @@ impl TypeChecker {
             }
 
             Expr::App { func, arg } => {
-                // RECURSIVE LET FIX
                 if let Expr::Lambda { param: func_name, body, .. } = &**func {
-                    
-                    // FIX: We now assume the function returns a plain Int!
                     let assumed_func_type = Type::Func(
                         Box::new(Type::Pair(Box::new(Type::Int), Box::new(Type::Int))),
                         Box::new(Type::Int) 
@@ -129,19 +129,6 @@ impl TypeChecker {
                 } else { 
                     Err("Type Error: Unpack requires Pair".to_string()) 
                 }
-            }
-            
-            Expr::ArrayAlloc { size, init_val } => {
-                let (_, env1) = self.check(env, size)?;
-                let (_, env2) = self.check(env1, init_val)?;
-                Ok((Type::Int, env2))
-            }
-            
-            Expr::ArraySwap { array, index, new_val } => {
-                let (_, env1) = self.check(env, array)?;
-                let (_, env2) = self.check(env1, index)?;
-                let (_, env3) = self.check(env2, new_val)?;
-                Ok((Type::Int, env3))
             }
         }
     }
